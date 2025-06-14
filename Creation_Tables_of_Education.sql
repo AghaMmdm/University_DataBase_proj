@@ -1,17 +1,21 @@
 ﻿USE UniversityDB;
 GO
 
--- Education schema creation
+-- Education schema creation (assuming it's created earlier, e.g., in Database_Setup.sql)
+-- CREATE SCHEMA Education;
+-- GO
 
+-- Table: Education.Departments
 CREATE TABLE Education.Departments (
-    DepartmentID INT PRIMARY KEY IDENTITY(1,1), -- IDENTITY برای افزایش خودکار
+    DepartmentID INT PRIMARY KEY IDENTITY(1,1), -- IDENTITY for auto-incrementing primary key
     DepartmentName NVARCHAR(100) NOT NULL UNIQUE,
-    HeadOfDepartmentID INT NULL -- این ستون بعداً به جدول Professors لینک می‌شود
+    HeadOfDepartmentID INT NULL -- This column will be linked to the Professors table later
 );
 GO
 
+-- Table: Education.Students
 CREATE TABLE Education.Students (
-    StudentID INT PRIMARY KEY IDENTITY(1000,1), -- شروع از 1000 برای Students
+    StudentID INT PRIMARY KEY IDENTITY(1000,1), -- Starting ID from 1000 for Students
     NationalCode NVARCHAR(10) NOT NULL UNIQUE,
     FirstName NVARCHAR(50) NOT NULL,
     LastName NVARCHAR(50) NOT NULL,
@@ -19,15 +23,16 @@ CREATE TABLE Education.Students (
     Email NVARCHAR(100) UNIQUE,
     PhoneNumber NVARCHAR(20),
     Address NVARCHAR(255),
-    EnrollmentDate DATE NOT NULL DEFAULT GETDATE(), -- تاریخ ثبت نام پیش فرض امروز
+    EnrollmentDate DATE NOT NULL DEFAULT GETDATE(), -- Default enrollment date is today
     DepartmentID INT NOT NULL,
-    Major NVARCHAR(100),
-    Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- Active, Graduated, Expelled, Withdrawn
+    Major NVARCHAR(100), -- This will be replaced with MajorID later
+    Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- Student status (e.g., Active, Graduated, Expelled, Withdrawn)
     CONSTRAINT FK_Student_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID),
-    CONSTRAINT CHK_StudentStatus CHECK (Status IN ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended')) -- اضافه کردن وضعیت Suspended
+    CONSTRAINT CHK_StudentStatus CHECK (Status IN ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended')) -- Added 'Suspended' status
 );
 GO
 
+-- Table: Education.Professors
 CREATE TABLE Education.Professors (
     ProfessorID INT PRIMARY KEY IDENTITY(1,1),
     FirstName NVARCHAR(50) NOT NULL,
@@ -40,11 +45,12 @@ CREATE TABLE Education.Professors (
 );
 GO
 
--- حالا می‌توانیم ستون HeadOfDepartmentID در جدول Departments را به ProfessorID در جدول Professors لینک کنیم
+-- Now, link the HeadOfDepartmentID column in the Departments table to ProfessorID in the Professors table
 ALTER TABLE Education.Departments
 ADD CONSTRAINT FK_Department_Head FOREIGN KEY (HeadOfDepartmentID) REFERENCES Education.Professors(ProfessorID);
 GO
 
+-- Table: Education.Courses
 CREATE TABLE Education.Courses (
     CourseID INT PRIMARY KEY IDENTITY(1,1),
     CourseCode NVARCHAR(20) NOT NULL UNIQUE,
@@ -56,48 +62,50 @@ CREATE TABLE Education.Courses (
 );
 GO
 
-
+-- Table: Education.CourseOfferings
 CREATE TABLE Education.CourseOfferings (
     OfferingID INT PRIMARY KEY IDENTITY(1,1),
     CourseID INT NOT NULL,
     ProfessorID INT NOT NULL,
-    AcademicYear INT NOT NULL,
+    AcademicYear INT NOT NULL, -- This will be replaced with AcademicYearID later
     Semester NVARCHAR(20) NOT NULL,
     Capacity INT NOT NULL,
     Location NVARCHAR(100),
     Schedule NVARCHAR(255),
     CONSTRAINT FK_Offering_Course FOREIGN KEY (CourseID) REFERENCES Education.Courses(CourseID),
     CONSTRAINT FK_Offering_Professor FOREIGN KEY (ProfessorID) REFERENCES Education.Professors(ProfessorID),
-    CONSTRAINT UQ_CourseOffering UNIQUE (CourseID, AcademicYear, Semester, ProfessorID) -- یک درس توسط یک استاد در یک ترم یک بار ارائه شود
+    CONSTRAINT UQ_CourseOffering UNIQUE (CourseID, AcademicYear, Semester, ProfessorID) -- A course can be offered by one professor in a specific semester only once
 );
 GO
 
+-- Table: Education.Enrollments
 CREATE TABLE Education.Enrollments (
     EnrollmentID INT PRIMARY KEY IDENTITY(1,1),
     StudentID INT NOT NULL,
     OfferingID INT NOT NULL,
     EnrollmentDate DATETIME NOT NULL DEFAULT GETDATE(),
-    Grade DECIMAL(4,2) NULL, -- نمره می‌تواند تا دو رقم اعشار باشد
+    Grade DECIMAL(4,2) NULL, -- Grade can be NULL until entered (will be moved to Grades table later)
     Status NVARCHAR(20) NOT NULL DEFAULT 'Enrolled',
     CONSTRAINT FK_Enrollment_Student FOREIGN KEY (StudentID) REFERENCES Education.Students(StudentID),
     CONSTRAINT FK_Enrollment_Offering FOREIGN KEY (OfferingID) REFERENCES Education.CourseOfferings(OfferingID),
-    CONSTRAINT UQ_Student_Offering UNIQUE (StudentID, OfferingID), -- یک دانشجو فقط یک بار در یک ارائه درس ثبت نام کند
-    CONSTRAINT CHK_EnrollmentStatus CHECK (Status IN ('Enrolled', 'Completed', 'Dropped', 'Failed', 'Withdrawn')) -- اضافه کردن وضعیت Withdrawn
+    CONSTRAINT UQ_Student_Offering UNIQUE (StudentID, OfferingID), -- A student can enroll in a specific course offering only once
+    CONSTRAINT CHK_EnrollmentStatus CHECK (Status IN ('Enrolled', 'Completed', 'Dropped', 'Failed', 'Withdrawn')) -- Added 'Withdrawn' status
 );
 GO
 
-
+-- Table: Education.Prerequisites
 CREATE TABLE Education.Prerequisites (
     PrerequisiteID INT PRIMARY KEY IDENTITY(1,1),
     CourseID INT NOT NULL,
     PrerequisiteCourseID INT NOT NULL,
     CONSTRAINT FK_Prereq_Course FOREIGN KEY (CourseID) REFERENCES Education.Courses(CourseID),
     CONSTRAINT FK_Prereq_PrerequisiteCourse FOREIGN KEY (PrerequisiteCourseID) REFERENCES Education.Courses(CourseID),
-    CONSTRAINT UQ_Course_Prereq UNIQUE (CourseID, PrerequisiteCourseID), -- هر ترکیب پیش نیاز و درس یکتا باشد
-    CONSTRAINT CHK_SelfPrerequisite CHECK (CourseID <> PrerequisiteCourseID) -- درس نمی تواند پیش نیاز خودش باشد
+    CONSTRAINT UQ_Course_Prereq UNIQUE (CourseID, PrerequisiteCourseID), -- Each course-prerequisite combination must be unique
+    CONSTRAINT CHK_SelfPrerequisite CHECK (CourseID <> PrerequisiteCourseID) -- A course cannot be its own prerequisite
 );
 GO
 
+-- Table: Education.Majors
 CREATE TABLE Education.Majors (
     MajorID INT PRIMARY KEY IDENTITY(1,1),
     MajorName NVARCHAR(100) NOT NULL UNIQUE,
@@ -106,42 +114,43 @@ CREATE TABLE Education.Majors (
 );
 GO
 
--- حالا می توانیم ستون Major در جدول Students را به MajorID در جدول Majors لینک کنیم
+-- Now we can link the Major column in the Students table to MajorID in the Majors table
 ALTER TABLE Education.Students
-DROP COLUMN Major; -- حذف ستون Major از Students
+DROP COLUMN Major; -- Drop the old Major column from Students
 GO
 
 ALTER TABLE Education.Students
-ADD MajorID INT NULL; -- اضافه کردن MajorID جدید
+ADD MajorID INT NULL; -- Add the new MajorID column
 
 ALTER TABLE Education.Students
 ADD CONSTRAINT FK_Student_Major FOREIGN KEY (MajorID) REFERENCES Education.Majors(MajorID);
 GO
 
+-- Table: Education.Curriculum
 CREATE TABLE Education.Curriculum (
     CurriculumID INT PRIMARY KEY IDENTITY(1,1),
     MajorID INT NOT NULL,
     CourseID INT NOT NULL,
-    RequiredSemester INT NOT NULL, -- ترم پیشنهادی برای اخذ درس
-    IsMandatory BIT NOT NULL DEFAULT 1, -- 1 برای اجباری، 0 برای اختیاری
+    RequiredSemester INT NOT NULL, -- Suggested semester for taking the course
+    IsMandatory BIT NOT NULL DEFAULT 1, -- 1 for mandatory, 0 for elective
     CONSTRAINT FK_Curriculum_Major FOREIGN KEY (MajorID) REFERENCES Education.Majors(MajorID),
     CONSTRAINT FK_Curriculum_Course FOREIGN KEY (CourseID) REFERENCES Education.Courses(CourseID),
-    CONSTRAINT UQ_Curriculum_Entry UNIQUE (MajorID, CourseID), -- هر درس یک بار در چارت یک رشته
+    CONSTRAINT UQ_Curriculum_Entry UNIQUE (MajorID, CourseID), -- Each course appears once in a major's curriculum
     CONSTRAINT CHK_RequiredSemester CHECK (RequiredSemester > 0)
 );
 GO
 
-
+-- Table: Education.LogEvents
 CREATE TABLE Education.LogEvents (
     LogID BIGINT PRIMARY KEY IDENTITY(1,1),
     EventType NVARCHAR(50) NOT NULL,
     EventDescription NVARCHAR(MAX),
     EventDate DATETIME NOT NULL DEFAULT GETDATE(),
-    UserID NVARCHAR(50) NULL -- شناسه کاربری که عملیات را انجام داده است
+    UserID NVARCHAR(50) NULL -- User ID who performed the operation
 );
 GO
 
-
+-- Table: Education.AcademicYears
 CREATE TABLE Education.AcademicYears (
     AcademicYearID INT PRIMARY KEY IDENTITY(1,1),
     YearStart INT NOT NULL UNIQUE,
@@ -151,40 +160,42 @@ CREATE TABLE Education.AcademicYears (
 );
 GO
 
--- تغییر جدول CourseOfferings برای استفاده از AcademicYearID
+-- Modify the CourseOfferings table to use AcademicYearID
 ALTER TABLE Education.CourseOfferings
 ADD AcademicYearID INT NULL;
 
+-- Attempt to populate AcademicYearID based on existing AcademicYear column
+-- This UPDATE statement assumes that corresponding entries exist in AcademicYears
 UPDATE Education.CourseOfferings
 SET AcademicYearID = (SELECT AcademicYearID FROM Education.AcademicYears WHERE YearStart = Education.CourseOfferings.AcademicYear);
 
 ALTER TABLE Education.CourseOfferings
-DROP COLUMN AcademicYear; -- حذف ستون قدیمی
+DROP COLUMN AcademicYear; -- Drop the old AcademicYear column
 
 ALTER TABLE Education.CourseOfferings
-ALTER COLUMN AcademicYearID INT NOT NULL; -- تبدیل به NOT NULL بعد از پر کردن اطلاعات
+ALTER COLUMN AcademicYearID INT NOT NULL; -- Convert to NOT NULL after data population
 
 ALTER TABLE Education.CourseOfferings
 ADD CONSTRAINT FK_Offering_AcademicYear FOREIGN KEY (AcademicYearID) REFERENCES Education.AcademicYears(AcademicYearID);
 GO
 
-
--- ابتدا ستون Grade را از Enrollments حذف می‌کنیم تا نمرات فقط در جدول Grades مدیریت شوند
+-- First, drop the Grade column from Enrollments to manage grades only in the Grades table
 ALTER TABLE Education.Enrollments
 DROP COLUMN Grade;
 GO
 
+-- Table: Education.Grades
 CREATE TABLE Education.Grades (
     GradeID INT PRIMARY KEY IDENTITY(1,1),
-    EnrollmentID INT NOT NULL UNIQUE, -- هر ثبت نام فقط یک نمره نهایی دارد
+    EnrollmentID INT NOT NULL UNIQUE, -- Each enrollment has only one final grade
     FinalGrade DECIMAL(4,2) NOT NULL,
     GradeDate DATE NOT NULL DEFAULT GETDATE(),
     CONSTRAINT FK_Grade_Enrollment FOREIGN KEY (EnrollmentID) REFERENCES Education.Enrollments(EnrollmentID),
-    CONSTRAINT CHK_FinalGradeRange CHECK (FinalGrade >= 0 AND FinalGrade <= 20) -- فرض بر نمره از 0 تا 20
+    CONSTRAINT CHK_FinalGradeRange CHECK (FinalGrade >= 0 AND FinalGrade <= 20) -- Assuming grades are from 0 to 20
 );
 GO
 
-
+-- Table: Education.Addresses
 CREATE TABLE Education.Addresses (
     AddressID INT PRIMARY KEY IDENTITY(1,1),
     Street NVARCHAR(100) NOT NULL,
@@ -195,26 +206,26 @@ CREATE TABLE Education.Addresses (
 );
 GO
 
--- حالا ستون Address را از Students حذف می‌کنیم و AddressID را اضافه می‌کنیم
+-- Now, remove the Address column from Students and add AddressID
 ALTER TABLE Education.Students
 DROP COLUMN Address;
 GO
 
 ALTER TABLE Education.Students
-ADD AddressID INT NULL; -- می تواند NULL باشد اگر آدرس اجباری نباشد
+ADD AddressID INT NULL; -- Can be NULL if address is not mandatory
 
 ALTER TABLE Education.Students
 ADD CONSTRAINT FK_Student_Address FOREIGN KEY (AddressID) REFERENCES Education.Addresses(AddressID);
 GO
 
--- اگر بخواهیم برای اساتید هم آدرس داشته باشیم، می‌توانیم همین کار را برای جدول Professors هم انجام دهیم:
+-- If we want to have addresses for Professors as well, we can do the same for the Professors table:
 ALTER TABLE Education.Professors
 ADD AddressID INT NULL;
 ALTER TABLE Education.Professors
 ADD CONSTRAINT FK_Professor_Address FOREIGN KEY (AddressID) REFERENCES Education.Addresses(AddressID);
 GO
 
-
+-- Table: Education.StudentContacts
 CREATE TABLE Education.StudentContacts (
     ContactID INT PRIMARY KEY IDENTITY(1,1),
     StudentID INT NOT NULL,
@@ -226,7 +237,7 @@ CREATE TABLE Education.StudentContacts (
 );
 GO
 
-
+-- Table: Education.CourseCategories
 CREATE TABLE Education.CourseCategories (
     CategoryID INT PRIMARY KEY IDENTITY(1,1),
     CategoryName NVARCHAR(100) NOT NULL UNIQUE,
@@ -234,9 +245,9 @@ CREATE TABLE Education.CourseCategories (
 );
 GO
 
--- اضافه کردن CategoryID به جدول Courses
+-- Add CategoryID to the Courses table
 ALTER TABLE Education.Courses
-ADD CategoryID INT NULL; -- می تواند NULL باشد اگر همه دروس دسته بندی نداشته باشند
+ADD CategoryID INT NULL; -- Can be NULL if not all courses have a category
 
 ALTER TABLE Education.Courses
 ADD CONSTRAINT FK_Course_Category FOREIGN KEY (CategoryID) REFERENCES Education.CourseCategories(CategoryID);
