@@ -246,3 +246,138 @@ BEGIN
 END;
 GO
 
+-- Trigger: trg_UpdateCourseCapacityOnEnrollmentChange
+-- Description: Updates the Capacity of a CourseOffering
+-- whenever an enrollment status changes, or an enrollment is deleted.
+-- Type: AFTER INSERT, UPDATE, DELETE
+-- Table: Education.Enrollments
+-- Requirements: Education.CourseOfferings, Education.LogEvents tables must exist.
+CREATE TRIGGER Education.trg_UpdateCourseCapacityOnEnrollmentChange
+ON Education.Enrollments
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @OfferingID INT;
+    DECLARE @CourseName NVARCHAR(100);
+    DECLARE @LogDescription NVARCHAR(MAX);
+    DECLARE @CapacityChange INT;
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME(); -- Capture the user who initiated the action
+
+    -- Handle INSERT operations
+    IF EXISTS (SELECT * FROM INSERTED) AND NOT EXISTS (SELECT * FROM DELETED)
+    BEGIN
+        -- A new enrollment has been inserted (Capacity decreases)
+        SELECT @OfferingID = OfferingID FROM INSERTED;
+
+        UPDATE CO
+        SET Capacity = CO.Capacity - 1
+        FROM Education.CourseOfferings AS CO
+        INNER JOIN INSERTED AS I ON CO.OfferingID = I.OfferingID;
+
+        SELECT @CourseName = C.CourseName
+        FROM Education.CourseOfferings AS CO
+        INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
+        WHERE CO.OfferingID = @OfferingID;
+
+        SET @LogDescription = N'Course capacity decreased for "' + @CourseName + N'" (OfferingID: ' + CAST(@OfferingID AS NVARCHAR(10)) + N') due to new enrollment. New capacity: ' + CAST((SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @OfferingID) AS NVARCHAR(10));
+        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID) VALUES (N'Capacity Update', @LogDescription, @EventUser);
+    END
+    -- Handle DELETE operations (Enrollment removed)
+    ELSE IF EXISTS (SELECT * FROM DELETED) AND NOT EXISTS (SELECT * FROM INSERTED)
+    BEGIN
+        -- An enrollment has been deleted (Capacity increases)
+        SELECT @OfferingID = OfferingID FROM DELETED;
+
+        UPDATE CO
+        SET Capacity = CO.Capacity + 1
+        FROM Education.CourseOfferings AS CO
+        INNER JOIN DELETED AS D ON CO.OfferingID = D.OfferingID;
+
+        SELECT @CourseName = C.CourseName
+        FROM Education.CourseOfferings AS CO
+        INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
+        WHERE CO.OfferingID = @OfferingID;
+
+        SET @LogDescription = N'Course capacity increased for "' + @CourseName + N'" (OfferingID: ' + CAST(@OfferingID AS NVARCHAR(10)) + N') due to enrollment deletion. New capacity: ' + CAST((SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @OfferingID) AS NVARCHAR(10));
+        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID) VALUES (N'Capacity Update', @LogDescription, @EventUser);
+    END
+    -- Handle UPDATE operations (Enrollment status changed)
+    ELSE IF EXISTS (SELECT * FROM INSERTED) AND EXISTS (SELECT * FROM DELETED)
+    BEGIN
+        -- Check if status changed from 'Enrolled' to 'Dropped', 'Failed', or 'Withdrawn'
+        -- Or if status changed from 'Dropped'/'Failed'/'Withdrawn' back to 'Enrolled' (less common but possible)
+        SELECT
+            @OfferingID = I.OfferingID,
+            @CapacityChange =
+                CASE
+                    -- If old status was 'Enrolled' but new status is 'Dropped', 'Failed', 'Withdrawn' -> Capacity increases by 1
+                    WHEN D.Status = 'Enrolled' AND I.Status IN ('Dropped', 'Failed', 'Withdrawn') THEN 1
+                    -- If old status was 'Dropped', 'Failed', 'Withdrawn' but new status is 'Enrolled' -> Capacity decreases by 1
+                    WHEN D.Status IN ('Dropped', 'Failed', 'Withdrawn') AND I.Status = 'Enrolled' THEN -1
+                    ELSE 0 -- No change relevant to capacity, or status is already Completed
+                END
+        FROM INSERTED AS I
+        INNER JOIN DELETED AS D ON I.EnrollmentID = D.EnrollmentID
+        WHERE I.Status <> D.Status; -- Only interested if status actually changed
+
+        IF @CapacityChange <> 0
+        BEGIN
+            UPDATE CO
+            SET Capacity = CO.Capacity + @CapacityChange
+            FROM Education.CourseOfferings AS CO
+            INNER JOIN INSERTED AS I ON CO.OfferingID = I.OfferingID;
+
+            SELECT @CourseName = C.CourseName
+            FROM Education.CourseOfferings AS CO
+            INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
+            WHERE CO.OfferingID = @OfferingID;
+
+            SET @LogDescription = N'Course capacity adjusted for "' + @CourseName + N'" (OfferingID: ' + CAST(@OfferingID AS NVARCHAR(10)) + N') due to enrollment status change. Change: ' + CAST(@CapacityChange AS NVARCHAR(10)) + N'. New capacity: ' + CAST((SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @OfferingID) AS NVARCHAR(10));
+            INSERT INTO Education.LogEvents (EventType, EventDescription, UserID) VALUES (N'Capacity Update', @LogDescription, @EventUser);
+        END
+    END
+END;
+GO
+
+
+-- Trigger: trg_PreventDirectEnrollmentOutsideSP
+-- Description: Prevents direct INSERT operations into Education.Enrollments table.
+-- Forces users to use the sp_EnrollStudentInCourse stored procedure for enrollments.
+-- Type: INSTEAD OF INSERT
+-- Table: Education.Enrollments
+-- Requirements: Education.LogEvents table must exist.
+CREATE TRIGGER Education.trg_PreventDirectEnrollmentOutsideSP
+ON Education.Enrollments
+INSTEAD OF INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @LogDescription NVARCHAR(MAX);
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+    DECLARE @StudentIDs NVARCHAR(MAX) = N'';
+    DECLARE @OfferingIDs NVARCHAR(MAX) = N'';
+
+    -- Build a string of affected StudentIDs and OfferingIDs for logging
+    SELECT @StudentIDs = @StudentIDs + CAST(StudentID AS NVARCHAR(10)) + N', '
+    FROM INSERTED;
+    SELECT @OfferingIDs = @OfferingIDs + CAST(OfferingID AS NVARCHAR(10)) + N', '
+    FROM INSERTED;
+
+    -- Remove trailing comma and space
+    SET @StudentIDs = IIF(LEN(@StudentIDs) > 0, LEFT(@StudentIDs, LEN(@StudentIDs) - 1), @StudentIDs);
+    SET @OfferingIDs = IIF(LEN(@OfferingIDs) > 0, LEFT(@OfferingIDs, LEN(@OfferingIDs) - 1), @OfferingIDs);
+
+    -- Log the attempt
+    SET @LogDescription = N'Attempt to directly insert into Education.Enrollments detected. StudentID(s): [' + @StudentIDs + N'], OfferingID(s): [' + @OfferingIDs + N']. Direct inserts are not allowed. Please use sp_EnrollStudentInCourse.';
+    INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
+    VALUES (N'Direct Enrollment Blocked', @LogDescription, @EventUser);
+
+    -- Raise an error to prevent the direct insert
+    THROW 50001, N'Error: Direct enrollment into the Education.Enrollments table is not allowed. Please use the "Education.EnrollStudentInCourse" stored procedure.', 1;
+
+END;
+GO
+
