@@ -1,4 +1,5 @@
-Project Description
+Project Description:
+
 The goal of this project is to design and implement an integrated database system for two main university domains: University Education and Library.
 
 Each section will be implemented separately but with logical interaction, with tables designed based on normalization principles. The implementation must prevent data redundancy and should be carried out in the SSMS environment. For each of the two schemas, the implementation includes designing tables, defining useful functions, stored procedures, and logical triggers.
