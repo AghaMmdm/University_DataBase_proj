@@ -1,2 +1,2 @@
 select *
-from Education.StudentContacts;
+from Education.LogEvents;
