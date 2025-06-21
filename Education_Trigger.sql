@@ -225,8 +225,6 @@ BEGIN
 END;
 GO
 
-
-
 -- Trigger to log new enrollments
 CREATE TRIGGER TR_Education_Enrollments_LogEnrollment
 ON Education.Enrollments
@@ -341,7 +339,12 @@ BEGIN
 END;
 GO
 
-
+IF EXISTS (SELECT * FROM sys.triggers WHERE name = 'trg_PreventDirectEnrollmentOutsideSP')
+BEGIN
+    DROP TRIGGER Education.trg_PreventDirectEnrollmentOutsideSP;
+    PRINT 'Trigger trg_PreventDirectEnrollmentOutsideSP dropped successfully.';
+END
+GO
 -- Trigger: trg_PreventDirectEnrollmentOutsideSP
 -- Description: Prevents direct INSERT operations into Education.Enrollments table.
 -- Forces users to use the sp_EnrollStudentInCourse stored procedure for enrollments.

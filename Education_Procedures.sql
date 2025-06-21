@@ -45,7 +45,7 @@ BEGIN
             @CourseName = C.CourseName,
             @CurrentCapacity = CO.Capacity,
             @CourseSchedule = CO.Schedule,
-            @CourseOfferingAcademicYearID = CO.AcademicYearID,
+            @CourseOfferingAcademicYearID = CO.AcademicYear,
             @CourseOfferingSemester = CO.Semester,
             @MaxCapacity = (SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @_OfferingID) -- Get original capacity if needed
         FROM
@@ -118,7 +118,7 @@ BEGIN
                 ON E.OfferingID = ExistingCO.OfferingID
             WHERE E.StudentID = @_StudentID
               AND E.Status = 'Enrolled' -- Check only actively enrolled courses
-              AND ExistingCO.AcademicYearID = @CourseOfferingAcademicYearID
+              AND ExistingCO.AcademicYear = @CourseOfferingAcademicYearID
               AND ExistingCO.Semester = @CourseOfferingSemester
               AND ExistingCO.Schedule = @CourseSchedule -- Assuming identical schedules conflict
         )
@@ -178,6 +178,7 @@ GO
 -- handling address, department, and major lookup/creation.
 -- Requirements: Addresses, Departments, Majors tables must exist.
 -- LogEvents table must have at least EventType, EventDescription.
+
 CREATE PROCEDURE Education.sp_AddStudent
     @NationalCode NVARCHAR(10),
     @FirstName NVARCHAR(50),

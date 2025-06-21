@@ -160,24 +160,28 @@ CREATE TABLE Education.AcademicYears (
 );
 GO
 
--- Modify the CourseOfferings table to use AcademicYearID
-ALTER TABLE Education.CourseOfferings
-ADD AcademicYearID INT NULL;
+-- ====================================================================================================================================================================
 
--- Attempt to populate AcademicYearID based on existing AcademicYear column
--- This UPDATE statement assumes that corresponding entries exist in AcademicYears
-UPDATE Education.CourseOfferings
-SET AcademicYearID = (SELECT AcademicYearID FROM Education.AcademicYears WHERE YearStart = Education.CourseOfferings.AcademicYear);
+---- Modify the CourseOfferings table to use AcademicYearID
+--ALTER TABLE Education.CourseOfferings
+--ADD AcademicYearID INT NULL;
 
-ALTER TABLE Education.CourseOfferings
-DROP COLUMN AcademicYear; -- Drop the old AcademicYear column
+---- Attempt to populate AcademicYearID based on existing AcademicYear column
+---- This UPDATE statement assumes that corresponding entries exist in AcademicYears
+--UPDATE Education.CourseOfferings
+--SET AcademicYearID = (SELECT AcademicYearID FROM Education.AcademicYears WHERE YearStart = Education.CourseOfferings.AcademicYear);
 
-ALTER TABLE Education.CourseOfferings
-ALTER COLUMN AcademicYearID INT NOT NULL; -- Convert to NOT NULL after data population
+--ALTER TABLE Education.CourseOfferings
+--DROP COLUMN AcademicYear; -- Drop the old AcademicYear column
 
-ALTER TABLE Education.CourseOfferings
-ADD CONSTRAINT FK_Offering_AcademicYear FOREIGN KEY (AcademicYearID) REFERENCES Education.AcademicYears(AcademicYearID);
-GO
+--ALTER TABLE Education.CourseOfferings
+--ALTER COLUMN AcademicYearID INT NOT NULL; -- Convert to NOT NULL after data population
+
+--ALTER TABLE Education.CourseOfferings
+--ADD CONSTRAINT FK_Offering_AcademicYear FOREIGN KEY (AcademicYearID) REFERENCES Education.AcademicYears(AcademicYearID);
+--GO
+
+-- ====================================================================================================================================================================
 
 -- First, drop the Grade column from Enrollments to manage grades only in the Grades table
 ALTER TABLE Education.Enrollments
