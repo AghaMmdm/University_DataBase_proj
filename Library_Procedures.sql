@@ -18,6 +18,7 @@ GO
 --    @_TotalCopies: Total number of copies being added initially (INT, default 1)
 --    @_Description: Optional description of the book (NVARCHAR(MAX))
 --    @_AuthorNamesList: Comma-separated string of author full names (e.g., 'Author1 FirstName LastName, Author2 FirstName LastName')
+
 CREATE PROCEDURE Library.AddBook
     @_Title NVARCHAR(500),
     @_ISBN NVARCHAR(13),
@@ -162,9 +163,6 @@ BEGIN
 END;
 GO
 
-USE UniversityDB;
-GO
-
 -- Drop the stored procedure if it already exists to allow for modifications
 IF OBJECT_ID('Library.RegisterMember', 'P') IS NOT NULL
     DROP PROCEDURE Library.RegisterMember;
@@ -185,6 +183,7 @@ GO
 --    @Education_StudentID: Optional. StudentID from Education.Students if MemberType is 'Student' (INT).
 --    @Education_ProfessorID: Optional. ProfessorID from Education.Professors if MemberType is 'Professor' (INT).
 -- =========================================================
+
 CREATE PROCEDURE Library.RegisterMember
     @NationalCode NVARCHAR(10),
     @FirstName NVARCHAR(100),
