@@ -1,2 +1,2 @@
 select *
-from Education.students;
+from Education.Professors;

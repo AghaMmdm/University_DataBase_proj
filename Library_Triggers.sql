@@ -82,3 +82,71 @@ BEGIN
     END CATCH;
 END;
 GO
+
+USE UniversityDB;
+GO
+
+-- Drop the trigger if it already exists to allow for modifications
+IF OBJECT_ID('Library.trg_Library_PreventDirectMemberInsert', 'TR') IS NOT NULL
+    DROP TRIGGER Library.trg_Library_PreventDirectMemberInsert;
+GO
+
+-- =========================================================
+-- Trigger: trg_Library_PreventDirectMemberInsert
+-- On Table: Library.Members
+-- Type: INSTEAD OF INSERT
+-- Description: Prevents direct INSERT operations into Library.Members table.
+--              Only allows inserts that originate from the Library.RegisterMember stored procedure.
+-- =========================================================
+CREATE TRIGGER trg_Library_PreventDirectMemberInsert
+ON Library.Members
+INSTEAD OF INSERT
+AS
+BEGIN
+    SET NOCOUNT ON; -- Prevents the message showing the number of rows affected by the trigger.
+
+    -- Check if the current execution context is within the 'RegisterMember' stored procedure.
+    -- OBJECT_NAME(@@PROCID) returns the name of the stored procedure that is currently executing.
+    -- If a direct INSERT is attempted, @@PROCID will typically be NULL or refer to a different context.
+    IF OBJECT_NAME(@@PROCID) = 'RegisterMember'
+    BEGIN
+        -- If the insert is coming from Library.RegisterMember SP, allow the actual insert to proceed.
+        -- We must explicitly perform the insert here because INSTEAD OF triggers replace the original operation.
+        INSERT INTO Library.Members (
+            NationalCode,
+            FirstName,
+            LastName,
+            MemberType,
+            ContactEmail,
+            ContactPhone,
+            Education_StudentID,
+            Education_ProfessorID,
+            JoinDate,
+            Status
+        )
+        SELECT
+            NationalCode,
+            FirstName,
+            LastName,
+            MemberType,
+            ContactEmail,
+            ContactPhone,
+            Education_StudentID,
+            Education_ProfessorID,
+            JoinDate,
+            Status
+        FROM INSERTED; -- INSERTED is a pseudo-table containing the rows that were attempted to be inserted.
+    END
+    ELSE
+    BEGIN
+        -- If the insert is NOT coming from Library.RegisterMember SP (i.e., a direct insert),
+        -- raise an error and prevent the operation.
+        RAISERROR('Direct insertion into Library.Members table is not allowed. Please use the Library.RegisterMember stored procedure to add new members.', 16, 1);
+        -- Level 16: User-defined error that can be corrected by the user.
+        -- State 1: Custom state for this error.
+        -- No explicit ROLLBACK is needed here for INSTEAD OF triggers, as raising an error
+        -- in a batch will implicitly rollback the current statement (the insert).
+        -- However, if this was part of a larger explicit transaction, you might need ROLLBACK TRANSACTION.
+    END
+END;
+GO

@@ -163,6 +163,7 @@ BEGIN
 END;
 GO
 
+
 -- Drop the stored procedure if it already exists to allow for modifications
 IF OBJECT_ID('Library.RegisterMember', 'P') IS NOT NULL
     DROP PROCEDURE Library.RegisterMember;
@@ -172,7 +173,8 @@ GO
 -- Stored Procedure: Library.RegisterMember
 -- Description: Registers a new member in the Library.Members table.
 --              It links to an existing student or professor from the Education schema
---              based on StudentID/ProfessorID and NationalCode.
+--              based on StudentID/ProfessorID and NationalCode (for students).
+--              Assumes Education.Professors DOES NOT have a NationalCode column.
 -- Parameters:
 --    @NationalCode: Member's National Code (NVARCHAR(10)) - Primary key, must be unique.
 --    @FirstName: Member's first name (NVARCHAR(100)).
@@ -183,7 +185,6 @@ GO
 --    @Education_StudentID: Optional. StudentID from Education.Students if MemberType is 'Student' (INT).
 --    @Education_ProfessorID: Optional. ProfessorID from Education.Professors if MemberType is 'Professor' (INT).
 -- =========================================================
-
 CREATE PROCEDURE Library.RegisterMember
     @NationalCode NVARCHAR(10),
     @FirstName NVARCHAR(100),
@@ -228,7 +229,7 @@ BEGIN
             -- If StudentID is provided, validate it against Education.Students
             IF @Education_StudentID IS NOT NULL
             BEGIN
-                -- Check if provided StudentID and NationalCode match an existing student
+                -- Check if provided StudentID and NationalCode match an existing student (Students table HAS NationalCode)
                 IF NOT EXISTS (SELECT 1 FROM Education.Students WHERE StudentID = @Education_StudentID AND NationalCode = @NationalCode)
                 BEGIN
                     RAISERROR('Error: Provided Education_StudentID %d does not exist or its National Code does not match in Education.Students.', 16, 1, @Education_StudentID);
@@ -249,13 +250,14 @@ BEGIN
         END
         ELSE IF @MemberType = 'Professor'
         BEGIN
-            -- If ProfessorID is provided, validate it against Education.Professors
+            -- For professors, we assume Education.Professors DOES NOT have NationalCode.
+            -- Linking must be via Education_ProfessorID if provided.
             IF @Education_ProfessorID IS NOT NULL
             BEGIN
-                -- Assuming Education.Professors also has NationalCode. If not, this needs adjustment.
-                IF NOT EXISTS (SELECT 1 FROM Education.Professors WHERE ProfessorID = @Education_ProfessorID AND NationalCode = @NationalCode)
+                -- Validate if provided ProfessorID exists in Education.Professors
+                IF NOT EXISTS (SELECT 1 FROM Education.Professors WHERE ProfessorID = @Education_ProfessorID)
                 BEGIN
-                    RAISERROR('Error: Provided Education_ProfessorID %d does not exist or its National Code does not match in Education.Professors.', 16, 1, @Education_ProfessorID);
+                    RAISERROR('Error: Provided Education_ProfessorID %d does not exist in Education.Professors.', 16, 1, @Education_ProfessorID);
                     ROLLBACK TRANSACTION;
                     RETURN;
                 END
@@ -263,10 +265,11 @@ BEGIN
             END
             ELSE
             BEGIN
-                -- If ProfessorID is NOT provided, try to find a matching professor by NationalCode in Education.Professors
-                SELECT @Education_ProfessorID = ProfessorID FROM Education.Professors WHERE NationalCode = @NationalCode;
-                IF @Education_ProfessorID IS NOT NULL
-                    SET @EducationEntityExists = 1; -- Mark that an auto-linked entity was found
+                -- If Education_ProfessorID is NOT provided, we cannot auto-link professors by NationalCode
+                -- since Education.Professors supposedly lacks that column.
+                -- The member will be registered without a direct link to Education.Professors,
+                -- unless a specific ProfessorID is given.
+                PRINT N'Warning: MemberType is ''Professor'' but no Education_ProfessorID was provided, and Education.Professors table does not contain NationalCode for auto-linking. Registering without direct link to Education.Professors.';
             END
             -- Ensure StudentID is explicitly NULL for professors
             SET @Education_StudentID = NULL;
