@@ -1,24 +1,9 @@
 USE UniversityDB;
 GO
 
--- Drop the stored procedure if it already exists to allow for modifications
-IF OBJECT_ID('Library.AddBook', 'P') IS NOT NULL
-    DROP PROCEDURE Library.AddBook;
-GO
 
--- Stored Procedure: Library.AddBook
+
 -- Description: Adds a new book title to the Library.Books table and handles its authors.
--- Parameters:
---    @_Title: Title of the book (NVARCHAR(500))
---    @_ISBN: International Standard Book Number (NVARCHAR(13)) - Must be unique
---    @_PublicationYear: Year of publication (INT)
---    @_Edition: Edition of the book (NVARCHAR(50), optional)
---    @_PublisherName: Name of the publisher (NVARCHAR(200)) - If not exists, will be added
---    @_CategoryName: Name of the book category/genre (NVARCHAR(100)) - If not exists, will be added
---    @_TotalCopies: Total number of copies being added initially (INT, default 1)
---    @_Description: Optional description of the book (NVARCHAR(MAX))
---    @_AuthorNamesList: Comma-separated string of author full names (e.g., 'Author1 FirstName LastName, Author2 FirstName LastName')
-
 CREATE PROCEDURE Library.AddBook
     @_Title NVARCHAR(500),
     @_ISBN NVARCHAR(13),
@@ -164,27 +149,13 @@ END;
 GO
 
 
--- Drop the stored procedure if it already exists to allow for modifications
-IF OBJECT_ID('Library.RegisterMember', 'P') IS NOT NULL
-    DROP PROCEDURE Library.RegisterMember;
-GO
 
--- =========================================================
--- Stored Procedure: Library.RegisterMember
+
 -- Description: Registers a new member in the Library.Members table.
 --              It links to an existing student or professor from the Education schema
 --              based on StudentID/ProfessorID and NationalCode (for students).
 --              Assumes Education.Professors DOES NOT have a NationalCode column.
--- Parameters:
---    @NationalCode: Member's National Code (NVARCHAR(10)) - Primary key, must be unique.
---    @FirstName: Member's first name (NVARCHAR(100)).
---    @LastName: Member's last name (NVARCHAR(100)).
---    @MemberType: Type of member ('Student', 'Professor', 'Staff') (NVARCHAR(50)).
---    @ContactEmail: Member's contact email (NVARCHAR(100), optional).
---    @ContactPhone: Member's contact phone (NVARCHAR(20), optional).
---    @Education_StudentID: Optional. StudentID from Education.Students if MemberType is 'Student' (INT).
---    @Education_ProfessorID: Optional. ProfessorID from Education.Professors if MemberType is 'Professor' (INT).
--- =========================================================
+
 CREATE PROCEDURE Library.RegisterMember
     @NationalCode NVARCHAR(10),
     @FirstName NVARCHAR(100),

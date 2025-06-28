@@ -1,9 +1,7 @@
--- SQL_Scripts/Education/03_Stored_Procedures/Education_StoredProcedures.sql
-
 USE UniversityDB;
 GO
 
--- Stored Procedure to enroll a student in a specific course offering
+-- Description: enroll a student in a specific course offering
 CREATE PROCEDURE Education.EnrollStudentInCourse
     @_StudentID INT,
     @_OfferingID INT
@@ -165,20 +163,10 @@ BEGIN
     END CATCH
 END;
 GO
-USE UniversityDB;
-GO
 
--- Drop the existing procedure if it exists to replace it with the new version
-IF OBJECT_ID('Education.sp_AddStudent', 'P') IS NOT NULL
-    DROP PROCEDURE Education.sp_AddStudent;
-GO
 
--- Stored Procedure 1: sp_AddStudent
--- Description: Adds a new student to the Education schema,
--- handling address, department, and major lookup/creation.
--- Requirements: Addresses, Departments, Majors tables must exist.
--- LogEvents table must have at least EventType, EventDescription.
 
+-- Description: Adds a new student to the Education schema
 CREATE PROCEDURE Education.sp_AddStudent
     @NationalCode NVARCHAR(10),
     @FirstName NVARCHAR(50),
@@ -297,19 +285,9 @@ BEGIN
 END;
 GO
 
-USE UniversityDB;
-GO
 
--- Drop the existing procedure if it exists to replace it with the new version
-IF OBJECT_ID('Education.sp_UpdateStudentGrade', 'P') IS NOT NULL
-    DROP PROCEDURE Education.sp_UpdateStudentGrade;
-GO
-
--- Stored Procedure 3: sp_UpdateStudentGrade
 -- Description: Records or updates the final grade for a student in a specific course offering.
 -- Also updates the enrollment status based on the grade.
--- Requirements: Enrollments, Grades, CourseOfferings, Students tables must exist.
--- LogEvents table must have at least EventType, EventDescription.
 CREATE PROCEDURE Education.sp_UpdateStudentGrade
     @StudentID INT,
     @CourseCode NVARCHAR(20),
@@ -443,30 +421,16 @@ BEGIN
 END;
 GO
 
-USE UniversityDB;
-GO
 
-USE UniversityDB;
-GO
 
--- Drop the existing procedure if it exists to replace it with the new version
-IF OBJECT_ID('Education.sp_AddCourseOffering', 'P') IS NOT NULL
-    DROP PROCEDURE Education.sp_AddCourseOffering;
-GO
-
--- Stored Procedure 4: sp_AddCourseOffering
 -- Description: Adds a new course offering for a specific academic year and semester.
 -- Performs validations for Course and Professor existence.
--- *** Adheres strictly to your provided Creation_Tables_of_Education.sql structure ***
--- Requirements: Courses, Professors, CourseOfferings tables must exist.
--- LogEvents table must have at least EventType, EventDescription.
 CREATE PROCEDURE Education.sp_AddCourseOffering
     @CourseCode NVARCHAR(20),
     @ProfessorID INT,              -- Changed from ProfessorNationalCode to ProfessorID
-    @AcademicYear INT,             -- Year as INT, e.g., 2024
-    @Semester NVARCHAR(20),        -- e.g., 'Fall', 'Spring', 'Summer'
+    @AcademicYear INT,
+    @Semester NVARCHAR(20),
     @Schedule NVARCHAR(255),
-    -- @Classroom NVARCHAR(50),     -- Removed as per your error (Invalid column name 'Classroom')
     @Capacity INT
 AS
 BEGIN
@@ -475,7 +439,6 @@ BEGIN
         BEGIN TRANSACTION;
 
         DECLARE @CourseID INT;
-        -- DECLARE @ProfessorID INT; -- Already a parameter
         DECLARE @LogDescription NVARCHAR(MAX);
         DECLARE @NewOfferingID INT;
         DECLARE @CourseName NVARCHAR(100);

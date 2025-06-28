@@ -1,15 +1,11 @@
 ﻿USE UniversityDB;
 GO
 
--- Education schema creation (assuming it's created earlier, e.g., in Database_Setup.sql)
--- CREATE SCHEMA Education;
--- GO
-
 -- Table: Education.Departments
 CREATE TABLE Education.Departments (
     DepartmentID INT PRIMARY KEY IDENTITY(1,1), -- IDENTITY for auto-incrementing primary key
     DepartmentName NVARCHAR(100) NOT NULL UNIQUE,
-    HeadOfDepartmentID INT NULL -- This column will be linked to the Professors table later
+    HeadOfDepartmentID INT NULL -- link to profossor table
 );
 GO
 
@@ -25,10 +21,10 @@ CREATE TABLE Education.Students (
     Address NVARCHAR(255),
     EnrollmentDate DATE NOT NULL DEFAULT GETDATE(), -- Default enrollment date is today
     DepartmentID INT NOT NULL,
-    Major NVARCHAR(100), -- This will be replaced with MajorID later
-    Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- Student status (e.g., Active, Graduated, Expelled, Withdrawn)
+    Major NVARCHAR(100),
+    Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended')
     CONSTRAINT FK_Student_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID),
-    CONSTRAINT CHK_StudentStatus CHECK (Status IN ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended')) -- Added 'Suspended' status
+    CONSTRAINT CHK_StudentStatus CHECK (Status IN ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended'))
 );
 GO
 
@@ -45,7 +41,7 @@ CREATE TABLE Education.Professors (
 );
 GO
 
--- Now, link the HeadOfDepartmentID column in the Departments table to ProfessorID in the Professors table
+-- link the HeadOfDepartmentID column in the Departments table to ProfessorID in the Professors table
 ALTER TABLE Education.Departments
 ADD CONSTRAINT FK_Department_Head FOREIGN KEY (HeadOfDepartmentID) REFERENCES Education.Professors(ProfessorID);
 GO
@@ -67,7 +63,7 @@ CREATE TABLE Education.CourseOfferings (
     OfferingID INT PRIMARY KEY IDENTITY(1,1),
     CourseID INT NOT NULL,
     ProfessorID INT NOT NULL,
-    AcademicYear INT NOT NULL, -- This will be replaced with AcademicYearID later
+    AcademicYear INT NOT NULL,
     Semester NVARCHAR(20) NOT NULL,
     Capacity INT NOT NULL,
     Location NVARCHAR(100),
@@ -84,12 +80,12 @@ CREATE TABLE Education.Enrollments (
     StudentID INT NOT NULL,
     OfferingID INT NOT NULL,
     EnrollmentDate DATETIME NOT NULL DEFAULT GETDATE(),
-    Grade DECIMAL(4,2) NULL, -- Grade can be NULL until entered (will be moved to Grades table later)
+    Grade DECIMAL(4,2) NULL,
     Status NVARCHAR(20) NOT NULL DEFAULT 'Enrolled',
     CONSTRAINT FK_Enrollment_Student FOREIGN KEY (StudentID) REFERENCES Education.Students(StudentID),
     CONSTRAINT FK_Enrollment_Offering FOREIGN KEY (OfferingID) REFERENCES Education.CourseOfferings(OfferingID),
     CONSTRAINT UQ_Student_Offering UNIQUE (StudentID, OfferingID), -- A student can enroll in a specific course offering only once
-    CONSTRAINT CHK_EnrollmentStatus CHECK (Status IN ('Enrolled', 'Completed', 'Dropped', 'Failed', 'Withdrawn')) -- Added 'Withdrawn' status
+    CONSTRAINT CHK_EnrollmentStatus CHECK (Status IN ('Enrolled', 'Completed', 'Dropped', 'Failed', 'Withdrawn'))
 );
 GO
 
@@ -114,7 +110,7 @@ CREATE TABLE Education.Majors (
 );
 GO
 
--- Now we can link the Major column in the Students table to MajorID in the Majors table
+-- link the Major column in the Students table to MajorID in the Majors table
 ALTER TABLE Education.Students
 DROP COLUMN Major; -- Drop the old Major column from Students
 GO
@@ -160,30 +156,7 @@ CREATE TABLE Education.AcademicYears (
 );
 GO
 
--- ====================================================================================================================================================================
-
----- Modify the CourseOfferings table to use AcademicYearID
---ALTER TABLE Education.CourseOfferings
---ADD AcademicYearID INT NULL;
-
----- Attempt to populate AcademicYearID based on existing AcademicYear column
----- This UPDATE statement assumes that corresponding entries exist in AcademicYears
---UPDATE Education.CourseOfferings
---SET AcademicYearID = (SELECT AcademicYearID FROM Education.AcademicYears WHERE YearStart = Education.CourseOfferings.AcademicYear);
-
---ALTER TABLE Education.CourseOfferings
---DROP COLUMN AcademicYear; -- Drop the old AcademicYear column
-
---ALTER TABLE Education.CourseOfferings
---ALTER COLUMN AcademicYearID INT NOT NULL; -- Convert to NOT NULL after data population
-
---ALTER TABLE Education.CourseOfferings
---ADD CONSTRAINT FK_Offering_AcademicYear FOREIGN KEY (AcademicYearID) REFERENCES Education.AcademicYears(AcademicYearID);
---GO
-
--- ====================================================================================================================================================================
-
--- First, drop the Grade column from Enrollments to manage grades only in the Grades table
+-- drop the Grade column from Enrollments to manage grades only in the Grades table
 ALTER TABLE Education.Enrollments
 DROP COLUMN Grade;
 GO
@@ -195,7 +168,7 @@ CREATE TABLE Education.Grades (
     FinalGrade DECIMAL(4,2) NOT NULL,
     GradeDate DATE NOT NULL DEFAULT GETDATE(),
     CONSTRAINT FK_Grade_Enrollment FOREIGN KEY (EnrollmentID) REFERENCES Education.Enrollments(EnrollmentID),
-    CONSTRAINT CHK_FinalGradeRange CHECK (FinalGrade >= 0 AND FinalGrade <= 20) -- Assuming grades are from 0 to 20
+    CONSTRAINT CHK_FinalGradeRange CHECK (FinalGrade >= 0 AND FinalGrade <= 20)
 );
 GO
 
@@ -216,13 +189,13 @@ DROP COLUMN Address;
 GO
 
 ALTER TABLE Education.Students
-ADD AddressID INT NULL; -- Can be NULL if address is not mandatory
+ADD AddressID INT NULL;
 
 ALTER TABLE Education.Students
 ADD CONSTRAINT FK_Student_Address FOREIGN KEY (AddressID) REFERENCES Education.Addresses(AddressID);
 GO
 
--- If we want to have addresses for Professors as well, we can do the same for the Professors table:
+-- we want to have addresses for Professors as well, we can do the same for the Professors table:
 ALTER TABLE Education.Professors
 ADD AddressID INT NULL;
 ALTER TABLE Education.Professors

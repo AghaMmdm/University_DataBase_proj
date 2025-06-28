@@ -1,5 +1,3 @@
--- SQL_Scripts/Education/02_Functions/Education_Functions.sql
-
 USE UniversityDB;
 GO
 
@@ -38,10 +36,6 @@ BEGIN
 END;
 GO
 
--- SQL_Scripts/Education/02_Functions/Education_Functions.sql
-
-USE UniversityDB;
-GO
 
 -- Function to calculate the number of remaining credits for a student's major
 CREATE FUNCTION Education.GetRemainingCredits (@StudentID INT)
@@ -90,25 +84,14 @@ BEGIN
 END;
 GO
 
-USE UniversityDB;
-GO
 
--- Drop the existing function if it exists to replace it with the new version
-IF OBJECT_ID('Education.fn_GetStudentSemesterStatus', 'FN') IS NOT NULL
-    DROP FUNCTION Education.fn_GetStudentSemesterStatus;
-GO
 
--- =========================================================
--- Function: fn_GetStudentSemesterStatus
--- Description: Determines the status of a student for a specific academic year and semester
---              based on the number of credits they are enrolled in.
+-- Description: Determines the status of a student for a specific academic year and semester based on the number of credits they are enrolled in.
 -- Rules:
 --   - 'Full-time': 12 credits or more (assuming standard full-time load)
 --   - 'Part-time': More than 0 and less than 12 credits
 --   - 'On Leave': 0 credits enrolled, but student's overall status is 'Active'
 --   - 'Not Enrolled / Other Status': If student doesn't exist, not active, or no enrollments for the semester.
--- Requirements: Students, Enrollments, CourseOfferings, Courses tables must exist.
--- =========================================================
 CREATE FUNCTION Education.fn_GetStudentSemesterStatus
 (
     @StudentID INT,

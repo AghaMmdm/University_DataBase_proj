@@ -2,7 +2,6 @@ USE UniversityDB;
 GO
 
 -- Table: Library.Authors
--- Stores information about authors of books.
 CREATE TABLE Library.Authors (
     AuthorID INT PRIMARY KEY IDENTITY(1,1),
     FirstName NVARCHAR(100) NOT NULL,
@@ -10,12 +9,11 @@ CREATE TABLE Library.Authors (
     Biography NVARCHAR(MAX),
     DateOfBirth DATE,
     DateOfDeath DATE,
-    CONSTRAINT UQ_Author_FullName UNIQUE (FirstName, LastName) -- Ensures unique author names
+    CONSTRAINT UQ_Author_FullName UNIQUE (FirstName, LastName)
 );
 GO
 
 -- Table: Library.Publishers
--- Stores information about book publishers.
 CREATE TABLE Library.Publishers (
     PublisherID INT PRIMARY KEY IDENTITY(1,1),
     PublisherName NVARCHAR(200) NOT NULL UNIQUE,
@@ -26,7 +24,6 @@ CREATE TABLE Library.Publishers (
 GO
 
 -- Table: Library.BookCategories
--- Stores categories/genres for books (e.g., Fiction, Science, History).
 CREATE TABLE Library.BookCategories (
     CategoryID INT PRIMARY KEY IDENTITY(1,1),
     CategoryName NVARCHAR(100) NOT NULL UNIQUE,
@@ -35,7 +32,6 @@ CREATE TABLE Library.BookCategories (
 GO
 
 -- Table: Library.Books
--- Stores details about individual book titles.
 CREATE TABLE Library.Books (
     BookID INT PRIMARY KEY IDENTITY(1,1),
     Title NVARCHAR(500) NOT NULL,
@@ -54,7 +50,6 @@ CREATE TABLE Library.Books (
 GO
 
 -- Table: Library.BookAuthors (Junction table for many-to-many relationship between Books and Authors)
--- A book can have multiple authors, and an author can write multiple books.
 CREATE TABLE Library.BookAuthors (
     BookID INT NOT NULL,
     AuthorID INT NOT NULL,
@@ -65,31 +60,26 @@ CREATE TABLE Library.BookAuthors (
 GO
 
 -- Table: Library.Members
--- Stores information about library members (can be students, professors, staff).
--- This table will link to the Education.Students and Education.Professors tables.
 CREATE TABLE Library.Members (
     MemberID INT PRIMARY KEY IDENTITY(10000,1), -- Starting ID from 10000 for Library Members
-    NationalCode NVARCHAR(10) UNIQUE, -- Can be linked to student/professor NationalCode
+    NationalCode NVARCHAR(10) UNIQUE, -- linked to student/professor NationalCode
     FirstName NVARCHAR(100) NOT NULL,
     LastName NVARCHAR(100) NOT NULL,
-    MemberType NVARCHAR(50) NOT NULL, -- e.g., 'Student', 'Professor', 'Staff'
+    MemberType NVARCHAR(50) NOT NULL, -- 'Student', 'Professor', 'Staff'
     ContactEmail NVARCHAR(100) UNIQUE,
     ContactPhone NVARCHAR(20),
     JoinDate DATE NOT NULL DEFAULT GETDATE(),
-    Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- e.g., 'Active', 'Suspended', 'Deactivated'
+    Status NVARCHAR(20) NOT NULL DEFAULT 'Active' -- 'Active', 'Suspended', 'Deactivated'
     Education_StudentID INT NULL, -- Link to Education.Students.StudentID if MemberType is 'Student'
     Education_ProfessorID INT NULL, -- Link to Education.Professors.ProfessorID if MemberType is 'Professor'
     CONSTRAINT CHK_MemberType CHECK (MemberType IN ('Student', 'Professor', 'Staff')),
     CONSTRAINT UQ_Member_NationalCode UNIQUE (NationalCode), -- NationalCode should be unique for members too
     CONSTRAINT FK_Member_Student FOREIGN KEY (Education_StudentID) REFERENCES Education.Students(StudentID),
     CONSTRAINT FK_Member_Professor FOREIGN KEY (Education_ProfessorID) REFERENCES Education.Professors(ProfessorID)
-    -- Add a CHECK constraint to ensure only one of Education_StudentID or Education_ProfessorID is non-NULL based on MemberType
-    -- This requires a UDF or a more complex trigger for strict enforcement, simple logic for now.
 );
 GO
 
 -- Table: Library.Borrows
--- Records instances of books being borrowed by members.
 CREATE TABLE Library.Borrows (
     BorrowID INT PRIMARY KEY IDENTITY(1,1),
     BookID INT NOT NULL,
@@ -97,7 +87,7 @@ CREATE TABLE Library.Borrows (
     BorrowDate DATE NOT NULL DEFAULT GETDATE(),
     ReturnDate DATE, -- Null if not yet returned
     DueDate DATE NOT NULL, -- Calculated based on BorrowDate and library policy
-    ActualReturnDate DATE, -- Date when the book was actually returned
+    ActualReturnDate DATE, 
     PenaltyAmount DECIMAL(10,2) DEFAULT 0.00, -- Any fine incurred
     Status NVARCHAR(20) NOT NULL DEFAULT 'Borrowed', -- 'Borrowed', 'Returned', 'Overdue', 'Lost'
     CONSTRAINT FK_Borrow_Book FOREIGN KEY (BookID) REFERENCES Library.Books(BookID),
@@ -108,13 +98,12 @@ CREATE TABLE Library.Borrows (
 GO
 
 -- Table: Library.Reservations
--- Records instances of books being reserved by members.
 CREATE TABLE Library.Reservations (
     ReservationID INT PRIMARY KEY IDENTITY(1,1),
     BookID INT NOT NULL,
     MemberID INT NOT NULL,
     ReservationDate DATE NOT NULL DEFAULT GETDATE(),
-    ExpirationDate DATE NOT NULL, -- Date by which the book must be picked up
+    ExpirationDate DATE NOT NULL, 
     Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- 'Active', 'Fulfilled', 'Cancelled', 'Expired'
     CONSTRAINT FK_Reservation_Book FOREIGN KEY (BookID) REFERENCES Library.Books(BookID),
     CONSTRAINT FK_Reservation_Member FOREIGN KEY (MemberID) REFERENCES Library.Members(MemberID),
