@@ -122,3 +122,51 @@ BEGIN
     END
 END;
 GO
+
+
+
+
+-- Description: Prevents borrow renewal if the book is currently reserved by another member.
+CREATE TRIGGER trg_Library_PreventRenewalIfReserved
+ON Library.Borrows
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+
+    -- Find attempted renewals where the book is reserved by someone else
+    IF EXISTS (
+        SELECT 1
+        FROM INSERTED I
+        INNER JOIN DELETED D ON I.BorrowID = D.BorrowID
+        INNER JOIN Library.Reservations R ON I.BookID = R.BookID
+        WHERE
+            ISNULL(I.ReturnDate, '') <> ISNULL(D.ReturnDate, '') -- Only care if ReturnDate changed
+            AND R.Status = 'Active'
+            AND R.MemberID <> I.MemberID
+    )
+    BEGIN
+        -- Log the unauthorized renewal attempt
+        INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+        SELECT
+            N'Unauthorized Renewal Attempt',
+            N'MemberID ' + CAST(I.MemberID AS NVARCHAR) +
+            N' attempted to renew BookID ' + CAST(I.BookID AS NVARCHAR) +
+            N' which is reserved by another member.',
+            @EventUser
+        FROM INSERTED I
+        INNER JOIN DELETED D ON I.BorrowID = D.BorrowID
+        INNER JOIN Library.Reservations R ON I.BookID = R.BookID
+        WHERE
+            ISNULL(I.ReturnDate, '') <> ISNULL(D.ReturnDate, '')
+            AND R.Status = 'Active'
+            AND R.MemberID <> I.MemberID;
+
+        -- Prevent the update
+        RAISERROR('This book is reserved by another member. Renewal is not allowed.', 16, 1);
+        ROLLBACK TRANSACTION;
+    END
+END;
+GO

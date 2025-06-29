@@ -2,7 +2,6 @@ USE UniversityDB;
 GO
 
 
-
 -- Description: Adds a new book title to the Library.Books table and handles its authors.
 CREATE PROCEDURE Library.AddBook
     @_Title NVARCHAR(500),
@@ -155,7 +154,6 @@ GO
 --              It links to an existing student or professor from the Education schema
 --              based on StudentID/ProfessorID and NationalCode (for students).
 --              Assumes Education.Professors DOES NOT have a NationalCode column.
-
 CREATE PROCEDURE Library.RegisterMember
     @NationalCode NVARCHAR(10),
     @FirstName NVARCHAR(100),
@@ -289,6 +287,97 @@ BEGIN
         VALUES (N'Member Registration Failed', @LogDescription, @EventUser);
 
         -- Re-throw the error to the calling application/user
+        THROW @ErrorSeverity, @ErrorMessage, @ErrorState;
+    END CATCH;
+END;
+GO
+
+
+
+
+-- Description: Registers a book borrow event for a library member.
+--              Validates availability, updates inventory, and logs the borrow.
+CREATE PROCEDURE Library.BorrowBook
+    @MemberID INT,
+    @BookID INT,
+    @DueDays INT = 14 -- Default loan period is 14 days
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogDescription NVARCHAR(MAX);
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+    DECLARE @AvailableCopies INT;
+    DECLARE @BorrowDate DATE = GETDATE();
+    DECLARE @DueDate DATE = DATEADD(DAY, @DueDays, @BorrowDate);
+    DECLARE @BorrowID INT;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- 1. Validate Member existence and status
+        IF NOT EXISTS (SELECT 1 FROM Library.Members WHERE MemberID = @MemberID AND Status = 'Active')
+        BEGIN
+            RAISERROR('Error: Invalid or inactive member (MemberID: %d).', 16, 1, @MemberID);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        -- 2. Validate Book existence
+        IF NOT EXISTS (SELECT 1 FROM Library.Books WHERE BookID = @BookID)
+        BEGIN
+            RAISERROR('Error: Book with ID %d does not exist.', 16, 1, @BookID);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        -- 3. Check book availability
+        SELECT @AvailableCopies = AvailableCopies FROM Library.Books WHERE BookID = @BookID;
+        IF @AvailableCopies < 1
+        BEGIN
+            RAISERROR('Error: No available copies for BookID: %d.', 16, 1, @BookID);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        -- 4. Insert borrow record
+        INSERT INTO Library.Borrows (MemberID, BookID, BorrowDate, DueDate, Status)
+        VALUES (@MemberID, @BookID, @BorrowDate, @DueDate, 'Borrowed');
+
+        SET @BorrowID = SCOPE_IDENTITY();
+
+        -- 5. Update book availability
+        UPDATE Library.Books
+        SET AvailableCopies = AvailableCopies - 1
+        WHERE BookID = @BookID;
+
+        -- 6. Log audit event
+        SET @LogDescription = N'MemberID ' + CAST(@MemberID AS NVARCHAR(10)) +
+                              N' borrowed BookID ' + CAST(@BookID AS NVARCHAR(10)) +
+                              N' on ' + CONVERT(NVARCHAR(10), @BorrowDate, 120) +
+                              N'. Due on ' + CONVERT(NVARCHAR(10), @DueDate, 120) +
+                              N'. BorrowID: ' + CAST(@BorrowID AS NVARCHAR(10));
+        INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+        VALUES (N'Book Borrowed', @LogDescription, @EventUser);
+
+        COMMIT TRANSACTION;
+        PRINT N'SUCCESS: Book borrowed successfully. BorrowID: ' + CAST(@BorrowID AS NVARCHAR(10));
+
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+
+        DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
+        SELECT
+            @ErrorMessage = ERROR_MESSAGE(),
+            @ErrorSeverity = ERROR_SEVERITY(),
+            @ErrorState = ERROR_STATE();
+
+        SET @LogDescription = N'Error borrowing book (BookID: ' + CAST(@BookID AS NVARCHAR(10)) +
+                              N', MemberID: ' + CAST(@MemberID AS NVARCHAR(10)) + N'): ' + @ErrorMessage;
+        INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+        VALUES (N'Book Borrow Failed', @LogDescription, @EventUser);
+
         THROW @ErrorSeverity, @ErrorMessage, @ErrorState;
     END CATCH;
 END;

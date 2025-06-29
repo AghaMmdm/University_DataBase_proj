@@ -69,7 +69,7 @@ CREATE TABLE Library.Members (
     ContactEmail NVARCHAR(100) UNIQUE,
     ContactPhone NVARCHAR(20),
     JoinDate DATE NOT NULL DEFAULT GETDATE(),
-    Status NVARCHAR(20) NOT NULL DEFAULT 'Active' -- 'Active', 'Suspended', 'Deactivated'
+    Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- 'Active', 'Suspended', 'Deactivated'
     Education_StudentID INT NULL, -- Link to Education.Students.StudentID if MemberType is 'Student'
     Education_ProfessorID INT NULL, -- Link to Education.Professors.ProfessorID if MemberType is 'Professor'
     CONSTRAINT CHK_MemberType CHECK (MemberType IN ('Student', 'Professor', 'Staff')),

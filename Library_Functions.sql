@@ -2,7 +2,7 @@ USE UniversityDB;
 GO
 
 --Some of the most borrowed books
-CREATE OR ALTER FUNCTION Library.GetTopBorrowedBooks (
+CREATE FUNCTION Library.GetTopBorrowedBooks (
     @TopN INT
 )
 RETURNS TABLE
@@ -19,6 +19,7 @@ RETURN
     GROUP BY B.BookID, B.Title, B.ISBN
     ORDER BY BorrowCount DESC
 );
+GO
 
 --Receiving overdue books
 CREATE FUNCTION Library.GetMemberOverdueBooks
