@@ -1,4 +1,4 @@
-USE UniversityDB;
+﻿USE UniversityDB;
 GO
 
 -- Description: enroll a student in a specific course offering
@@ -514,3 +514,110 @@ BEGIN
 END;
 GO
 
+
+-- Description : stored prosedure for suggesting course for student
+CREATE PROCEDURE Education.SuggestCoursesForStudent
+    @StudentID INT,
+    @CurrentAcademicYear INT,
+    @CurrentSemester NVARCHAR(20) -- e.g., 'Fall', 'Spring', 'Summer'
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Log event for auditing
+    INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
+    VALUES ('Course Suggestion Request', 'Request for course suggestions for StudentID: ' + CAST(@StudentID AS NVARCHAR(10)), SUSER_SNAME());
+
+    DECLARE @StudentMajorID INT;
+
+    -- 1. Get Student's Major
+    SELECT @StudentMajorID = S.MajorID
+    FROM Education.Students AS S
+    WHERE S.StudentID = @StudentID;
+
+    IF @StudentMajorID IS NULL
+    BEGIN
+        RAISERROR('Error: Student not found or Major not assigned. Please ensure StudentID is correct and student has a MajorID.', 16, 1);
+        RETURN;
+    END;
+
+    -- 2. Identify courses already completed by the student
+    -- Assuming a passing grade is >= 10
+    CREATE TABLE #CompletedCourses (CourseID INT PRIMARY KEY);
+    INSERT INTO #CompletedCourses (CourseID)
+    SELECT DISTINCT C.CourseID
+    FROM Education.Grades AS G
+    INNER JOIN Education.Enrollments AS E ON G.EnrollmentID = E.EnrollmentID
+    INNER JOIN Education.CourseOfferings AS CO ON E.OfferingID = CO.OfferingID
+    INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
+    WHERE E.StudentID = @StudentID AND G.FinalGrade >= 10 -- Adjust passing grade threshold if different
+      AND E.Status = 'Completed'; -- Only consider completed courses
+
+    -- 3. Get currently offered courses for the specified academic year and semester
+    CREATE TABLE #CurrentOfferings (
+        OfferingID INT PRIMARY KEY,
+        CourseID INT,
+        ProfessorID INT,
+        Schedule NVARCHAR(255),
+        Capacity INT,
+        EnrolledCount INT,
+        AcademicYear INT,
+        Semester NVARCHAR(20)
+    );
+    INSERT INTO #CurrentOfferings (OfferingID, CourseID, ProfessorID, Schedule, Capacity, EnrolledCount, AcademicYear, Semester)
+    SELECT
+        CO.OfferingID,
+        CO.CourseID,
+        CO.ProfessorID,
+        CO.Schedule,
+        CO.Capacity,
+        (SELECT COUNT(*) FROM Education.Enrollments WHERE OfferingID = CO.OfferingID AND Status = 'Enrolled') AS Enrolled,
+        CO.AcademicYear,
+        CO.Semester
+    FROM Education.CourseOfferings AS CO
+    WHERE CO.AcademicYear = @CurrentAcademicYear
+      AND CO.Semester = @CurrentSemester
+      AND CO.Capacity > (SELECT COUNT(*) FROM Education.Enrollments WHERE OfferingID = CO.OfferingID AND Status = 'Enrolled'); -- Only available courses
+
+    -- 4. Suggest courses based on:
+    --    a. Part of student's major curriculum (from Education.Curriculum)
+    --    b. Not already completed by the student
+    --    c. Currently offered
+    --    d. Prerequisite checks (if Education.CoursePrerequisites table is populated)
+    --    e. Order by RequiredSemester and then by whether it's mandatory
+    SELECT
+        C.CourseID,
+        C.CourseName,
+        C.CourseCode,
+        C.Credits,
+        COF.OfferingID,
+        P.FirstName + ' ' + P.LastName AS ProfessorName,
+        COF.Schedule,
+        (COF.Capacity - COF.EnrolledCount) AS AvailableSlots,
+        CUR.RequiredSemester,
+        CASE WHEN CUR.IsMandatory = 1 THEN N'اجباری' ELSE N'اختیاری' END AS CourseType
+    FROM Education.Curriculum AS CUR -- Using your Curriculum table
+    INNER JOIN Education.Courses AS C ON CUR.CourseID = C.CourseID
+    INNER JOIN #CurrentOfferings AS COF ON C.CourseID = COF.CourseID
+    LEFT JOIN Education.Professors AS P ON COF.ProfessorID = P.ProfessorID
+    WHERE
+        CUR.MajorID = @StudentMajorID
+        AND C.CourseID NOT IN (SELECT CourseID FROM #CompletedCourses)
+        -- Check for prerequisites: Ensure all prerequisites for the suggested course are met
+        AND NOT EXISTS (
+            SELECT 1
+            FROM Education.CoursePrerequisites AS CP
+            WHERE CP.CourseID = C.CourseID -- The course we are suggesting
+              AND CP.PrerequisiteCourseID NOT IN (SELECT CourseID FROM #CompletedCourses) -- Prerequisite is NOT completed
+        )
+    ORDER BY
+        CUR.RequiredSemester, -- Order by the suggested semester
+        CUR.IsMandatory DESC, -- Mandatory courses first
+        C.CourseName;
+
+    -- Clean up temporary tables
+    DROP TABLE #CompletedCourses;
+    DROP TABLE #CurrentOfferings;
+
+END;
+GO
