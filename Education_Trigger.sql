@@ -1,21 +1,30 @@
 ﻿USE UniversityDB;
 GO
 
-
+IF OBJECT_ID('Education.TR_Education_Students_ValidateNationalCode', 'TR') IS NOT NULL
+BEGIN
+    DROP TRIGGER Education.TR_Education_Students_ValidateNationalCode; -- نام تریگر در اینجا اصلاح شد
+    PRINT 'Dropped existing trigger: Education.TR_Education_Students_ValidateNationalCode.';
+END
+ELSE
+BEGIN
+    PRINT 'Trigger Education.TR_Education_Students_ValidateNationalCode does not exist.';
+END;
+GO
 -- Simplified Trigger to validate the National Code (Melli Code)
 CREATE TRIGGER TR_Education_Students_ValidateNationalCode
 ON Education.Students
 AFTER INSERT, UPDATE
 AS
 BEGIN
-    SET NOCOUNT ON; -- Prevents "X rows affected" messages
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON; -- اضافه شده: تضمین می‌کند که خطاها تراکنش را به طور کامل قطع کنند.
 
     DECLARE @NationalCode NVARCHAR(10);
     DECLARE @StudentID INT;
-    DECLARE @ValidCode BIT = 1; -- Initial assumption that the code is valid
+    DECLARE @ValidCode BIT = 1;
 
-    -- Iterate through all rows affected by the INSERT/UPDATE operation
-    DECLARE student_cursor CURSOR FOR
+    DECLARE student_cursor CURSOR LOCAL FOR
     SELECT StudentID, NationalCode
     FROM INSERTED;
 
@@ -24,39 +33,37 @@ BEGIN
 
     WHILE @@FETCH_STATUS = 0
     BEGIN
-        -- Remove any hyphens or spaces from the National Code for consistent checks
         SET @NationalCode = REPLACE(REPLACE(@NationalCode, '-', ''), ' ', '');
 
-        -- 1. Validate length (must be 10 digits) and character type (numeric only)
         IF LEN(@NationalCode) <> 10 OR ISNUMERIC(@NationalCode) = 0
         BEGIN
             SET @ValidCode = 0;
             RAISERROR('The provided National Code (''%s'') for Student ID %d is invalid. It must be 10 numeric digits. Operation aborted.', 16, 1, @NationalCode, @StudentID);
-            BREAK; -- Exit the loop as we already found an invalid code
+            BREAK;
         END
-        -- 2. Check for repeating digits (e.g., 1111111111 or 0000000000 are usually invalid)
         ELSE IF @NationalCode = REPLICATE(SUBSTRING(@NationalCode, 1, 1), 10)
         BEGIN
             SET @ValidCode = 0;
             RAISERROR('The provided National Code (''%s'') for Student ID %d is invalid. It cannot consist of all repeating digits. Operation aborted.', 16, 1, @NationalCode, @StudentID);
-            BREAK; -- Exit the loop as we already found an invalid code
+            BREAK;
         END
-        
-        -- Fetch the next row from the cursor
+
         FETCH NEXT FROM student_cursor INTO @StudentID, @NationalCode;
     END;
 
     CLOSE student_cursor;
     DEALLOCATE student_cursor;
 
-    -- If any invalid code was found, rollback the entire transaction
     IF @ValidCode = 0
     BEGIN
-        ROLLBACK TRANSACTION; -- Reverts the entire DML statement that fired the trigger
-        RETURN; -- Exits the trigger
+        ROLLBACK TRANSACTION;
+        RETURN;
     END
 
 END;
+GO
+
+PRINT '--- TR_Education_Students_ValidateNationalCode created successfully. ---';
 GO
 
 
@@ -235,7 +242,13 @@ END;
 GO
 
 
-
+-- Drop the existing trigger if it exists
+IF OBJECT_ID('Education.trg_PreventDirectEnrollmentOutsideSP', 'TR') IS NOT NULL
+BEGIN
+    DROP TRIGGER Education.trg_PreventDirectEnrollmentOutsideSP;
+    PRINT 'Dropped existing trigger: Education.trg_PreventDirectEnrollmentOutsideSP';
+END
+GO
 -- Prevents direct INSERT operations into Education.Enrollments table.
 -- Forces users to use the sp_EnrollStudentInCourse stored procedure for enrollments.
 CREATE TRIGGER Education.trg_PreventDirectEnrollmentOutsideSP
@@ -245,32 +258,36 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @LogDescription NVARCHAR(MAX);
-    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
-    DECLARE @StudentIDs NVARCHAR(MAX) = N'';
-    DECLARE @OfferingIDs NVARCHAR(MAX) = N'';
+    -- Check if CONTEXT_INFO indicates an authorized call from Education.EnrollStudentInCourse
+    IF CONTEXT_INFO() = 0x504F4351
+    BEGIN
+        -- If authorized, perform the actual insert into the base table
+        INSERT INTO Education.Enrollments (StudentID, OfferingID, EnrollmentDate, Status)
+        SELECT
+            StudentID,
+            OfferingID,
+            EnrollmentDate,
+            Status
+        FROM INSERTED;
+    END
+    ELSE
+    BEGIN
+        DECLARE @LogDescription NVARCHAR(MAX);
+        DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+        DECLARE @StudentIDs NVARCHAR(MAX) = N'';
+        DECLARE @OfferingIDs NVARCHAR(MAX) = N'';
 
-    -- Build a string of affected StudentIDs and OfferingIDs for logging
-    SELECT @StudentIDs = @StudentIDs + CAST(StudentID AS NVARCHAR(10)) + N', '
-    FROM INSERTED;
-    SELECT @OfferingIDs = @OfferingIDs + CAST(OfferingID AS NVARCHAR(10)) + N', '
-    FROM INSERTED;
+        SELECT @StudentIDs = STRING_AGG(CAST(StudentID AS NVARCHAR(10)), ', ') FROM INSERTED;
+        SELECT @OfferingIDs = STRING_AGG(CAST(OfferingID AS NVARCHAR(10)), ', ') FROM INSERTED;
 
-    -- Remove trailing comma and space
-    SET @StudentIDs = IIF(LEN(@StudentIDs) > 0, LEFT(@StudentIDs, LEN(@StudentIDs) - 1), @StudentIDs);
-    SET @OfferingIDs = IIF(LEN(@OfferingIDs) > 0, LEFT(@OfferingIDs, LEN(@OfferingIDs) - 1), @OfferingIDs);
+        SET @LogDescription = N'Attempt to directly insert into Education.Enrollments detected. StudentID(s): [' + ISNULL(@StudentIDs, N'N/A') + N'], OfferingID(s): [' + ISNULL(@OfferingIDs, N'N/A') + N']. Direct inserts are not allowed. Please use the "Education.EnrollStudentInCourse" stored procedure.';
+        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
+        VALUES (N'Direct Enrollment Blocked', @LogDescription, @EventUser);
 
-    -- Log the attempt
-    SET @LogDescription = N'Attempt to directly insert into Education.Enrollments detected. StudentID(s): [' + @StudentIDs + N'], OfferingID(s): [' + @OfferingIDs + N']. Direct inserts are not allowed. Please use sp_EnrollStudentInCourse.';
-    INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
-    VALUES (N'Direct Enrollment Blocked', @LogDescription, @EventUser);
-
-    -- Raise an error to prevent the direct insert
-    THROW 50001, N'Error: Direct enrollment into the Education.Enrollments table is not allowed. Please use the "Education.EnrollStudentInCourse" stored procedure.', 1;
-
+        RAISERROR('Error: Direct enrollment into the Education.Enrollments table is not allowed. Please use the "Education.EnrollStudentInCourse" stored procedure.', 16, 1);
+    END;
 END;
 GO
-
 
 -- Description: This trigger automatically deactivates a corresponding library member's status
 --				in the Library.Members table when a student's status in Education.Students

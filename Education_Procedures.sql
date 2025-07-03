@@ -4,22 +4,28 @@ GO
 -- Description: enroll a student in a specific course offering
 CREATE PROCEDURE Education.EnrollStudentInCourse
     @_StudentID INT,
-    @_OfferingID INT
+    @_OfferingID INT,
+    @NewEnrollmentID INT OUTPUT -- Corrected from OUT to OUTPUT
 AS
 BEGIN
-    SET NOCOUNT ON; -- Suppress the message that indicates the number of rows affected
+    SET NOCOUNT ON;
 
     DECLARE @CourseID INT;
     DECLARE @CourseName NVARCHAR(100);
     DECLARE @StudentStatus NVARCHAR(20);
-    DECLARE @CurrentCapacity INT;
     DECLARE @MaxCapacity INT;
+    DECLARE @CalculatedCurrentCapacity INT;
     DECLARE @StudentMajorID INT;
     DECLARE @CourseSchedule NVARCHAR(255);
     DECLARE @CourseOfferingAcademicYearID INT;
     DECLARE @CourseOfferingSemester NVARCHAR(20);
 
+    SET @NewEnrollmentID = NULL; -- Initialize output parameter
+
     BEGIN TRY
+        -- Set context to signal trigger that this is an authorized insert
+        SET CONTEXT_INFO 0x504F4351; -- Corrected to use 0x for clearing context info
+
         -- 1. Validate Student Existence and Status
         SELECT @StudentStatus = S.Status, @StudentMajorID = S.MajorID
         FROM Education.Students AS S
@@ -28,143 +34,156 @@ BEGIN
         IF @StudentStatus IS NULL
         BEGIN
             RAISERROR('Error: Student with ID %d does not exist.', 16, 1, @_StudentID);
+            SET CONTEXT_INFO 0x; -- Corrected to use 0x
             RETURN;
         END
 
         IF @StudentStatus <> 'Active'
         BEGIN
             RAISERROR('Error: Student with ID %d is not active and cannot enroll in courses. Current status: %s', 16, 1, @_StudentID, @StudentStatus);
+            SET CONTEXT_INFO 0x; -- Corrected to use 0x
             RETURN;
         END
 
-        -- 2. Validate Course Offering Existence and Capacity
+        -- 2. Validate Course Offering Existence and Max Capacity
         SELECT
             @CourseID = CO.CourseID,
-            @CourseName = C.CourseName,
-            @CurrentCapacity = CO.Capacity,
+            @MaxCapacity = CO.Capacity,
             @CourseSchedule = CO.Schedule,
             @CourseOfferingAcademicYearID = CO.AcademicYear,
             @CourseOfferingSemester = CO.Semester,
-            @MaxCapacity = (SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @_OfferingID) -- Get original capacity if needed
-        FROM
-            Education.CourseOfferings AS CO
-        INNER JOIN
-            Education.Courses AS C ON CO.CourseID = C.CourseID
-        WHERE
-            CO.OfferingID = @_OfferingID;
+            @CourseName = C.CourseName
+        FROM Education.CourseOfferings AS CO
+        INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
+        WHERE CO.OfferingID = @_OfferingID;
 
         IF @CourseID IS NULL
         BEGIN
             RAISERROR('Error: Course Offering with ID %d does not exist.', 16, 1, @_OfferingID);
+            SET CONTEXT_INFO 0x; -- Corrected to use 0x
             RETURN;
         END
 
-        IF @CurrentCapacity <= 0
+        -- Dynamically calculate CurrentCapacity by counting active enrollments for this offering
+        SELECT @CalculatedCurrentCapacity = COUNT(*)
+        FROM Education.Enrollments
+        WHERE OfferingID = @_OfferingID
+          AND Status IN ('Enrolled', 'InProgress');
+
+        IF @CalculatedCurrentCapacity >= @MaxCapacity
         BEGIN
-            RAISERROR('Error: Course "%s" (Offering ID: %d) has no available capacity.', 16, 1, @CourseName, @_OfferingID);
+            RAISERROR('Error: Course Offering with ID %d is full. Current enrollments: %d, Max capacity: %d', 16, 1, @_OfferingID, @CalculatedCurrentCapacity, @MaxCapacity);
+            SET CONTEXT_INFO 0x; -- Corrected to use 0x
             RETURN;
         END
 
-        -- 3. Check for Duplicate Enrollment (Student already enrolled in this exact offering)
+        -- 3. Check for Duplicate Enrollment in the same offering
         IF EXISTS (SELECT 1 FROM Education.Enrollments WHERE StudentID = @_StudentID AND OfferingID = @_OfferingID)
         BEGIN
-            RAISERROR('Error: Student with ID %d is already enrolled in this course offering (ID: %d).', 16, 1, @_StudentID, @_OfferingID);
+            RAISERROR('Error: Student with ID %d is already enrolled in Course Offering with ID %d.', 16, 1, @_StudentID, @_OfferingID);
+            SET CONTEXT_INFO 0x; -- Corrected to use 0x
             RETURN;
         END
 
-        -- 4. Check Prerequisites (More robust check)
-        -- Get a list of prerequisites for the course being enrolled in
-        DECLARE @RequiredPrerequisites TABLE (PrerequisiteCourseID INT);
-        INSERT INTO @RequiredPrerequisites (PrerequisiteCourseID)
-        SELECT PrerequisiteCourseID
-        FROM Education.Prerequisites
-        WHERE CourseID = @CourseID;
-
-        -- For each required prerequisite, check if the student has passed it
-        IF EXISTS (SELECT 1 FROM @RequiredPrerequisites)
-        BEGIN
-            DECLARE @MissingPrereqCourseID INT;
-            DECLARE @MissingPrereqCourseName NVARCHAR(100);
-
-            -- Find if any required prerequisite is NOT completed by the student with a passing grade
-            SELECT TOP 1 @MissingPrereqCourseID = RP.PrerequisiteCourseID
-            FROM @RequiredPrerequisites AS RP
-            LEFT JOIN Education.CourseOfferings AS CO_Passed
-                ON CO_Passed.CourseID = RP.PrerequisiteCourseID
-            LEFT JOIN Education.Enrollments AS E_Passed
-                ON E_Passed.OfferingID = CO_Passed.OfferingID
-                AND E_Passed.StudentID = @_StudentID
-                AND E_Passed.Status = 'Completed'
-            LEFT JOIN Education.Grades AS G_Passed
-                ON G_Passed.EnrollmentID = E_Passed.EnrollmentID
-                AND G_Passed.FinalGrade >= 10 -- Assuming 10 is the passing grade
-            WHERE G_Passed.GradeID IS NULL; -- If GradeID is NULL, it means the prerequisite was not found as completed
-
-            IF @MissingPrereqCourseID IS NOT NULL
-            BEGIN
-                SELECT @MissingPrereqCourseName = CourseName FROM Education.Courses WHERE CourseID = @MissingPrereqCourseID;
-                RAISERROR('Error: Student with ID %d has not completed the prerequisite course "%s" (ID: %d).', 16, 1, @_StudentID, @MissingPrereqCourseName, @MissingPrereqCourseID);
-                RETURN;
-            END
-        END
-
-        -- 5. Check Scheduling Conflicts
+        -- 4. Check for Time Conflicts for the student in the same semester and year
         IF EXISTS (
             SELECT 1
             FROM Education.Enrollments AS E
-            INNER JOIN Education.CourseOfferings AS ExistingCO
-                ON E.OfferingID = ExistingCO.OfferingID
+            INNER JOIN Education.CourseOfferings AS CO ON E.OfferingID = CO.OfferingID
             WHERE E.StudentID = @_StudentID
-              AND E.Status = 'Enrolled' -- Check only actively enrolled courses
-              AND ExistingCO.AcademicYear = @CourseOfferingAcademicYearID
-              AND ExistingCO.Semester = @CourseOfferingSemester
-              AND ExistingCO.Schedule = @CourseSchedule -- Assuming identical schedules conflict
+              AND CO.AcademicYear = @CourseOfferingAcademicYearID
+              AND CO.Semester = @CourseOfferingSemester
+              AND CO.Schedule = @CourseSchedule
+              AND E.Status IN ('Enrolled', 'InProgress')
         )
         BEGIN
-            RAISERROR('Error: Student with ID %d has a scheduling conflict with another course in the same semester and time.', 16, 1, @_StudentID);
+            RAISERROR('Error: Student with ID %d has a time conflict with another enrolled course for OfferingID %d.', 16, 1, @_StudentID, @_OfferingID);
+            SET CONTEXT_INFO 0x; -- Corrected to use 0x
             RETURN;
         END
 
-        -- Start Transaction for atomicity
-        BEGIN TRANSACTION;
+        -- 5. Check for Prerequisites
+        DECLARE @PrerequisitesMet BIT = 1;
+        IF EXISTS (SELECT 1 FROM Education.Prerequisites WHERE CourseID = @CourseID)
+        BEGIN
+            IF NOT EXISTS (
+                SELECT P.PrerequisiteCourseID
+                FROM Education.Prerequisites AS P
+                LEFT JOIN Education.Enrollments AS E ON E.StudentID = @_StudentID
+                                                     AND E.Status = 'Completed'
+                                                     AND E.OfferingID IN (SELECT OfferingID FROM Education.CourseOfferings WHERE CourseID = P.PrerequisiteCourseID)
+                WHERE P.CourseID = @CourseID
+                  AND E.EnrollmentID IS NULL
+            )
+            BEGIN
+                SET @PrerequisitesMet = 1;
+            END
+            ELSE
+            BEGIN
+                DECLARE @MissingPrereqCourseName NVARCHAR(100);
+                DECLARE @MissingPrereqCourseID INT;
 
-        -- Insert the new enrollment record
+                SELECT TOP 1 @MissingPrereqCourseID = P.PrerequisiteCourseID,
+                             @MissingPrereqCourseName = PC.CourseName
+                FROM Education.Prerequisites AS P
+                INNER JOIN Education.Courses AS PC ON P.PrerequisiteCourseID = PC.CourseID
+                LEFT JOIN Education.Enrollments AS E ON E.StudentID = @_StudentID
+                                                     AND E.Status = 'Completed'
+                                                     AND E.OfferingID IN (SELECT OfferingID FROM Education.CourseOfferings WHERE CourseID = P.PrerequisiteCourseID)
+                WHERE P.CourseID = @CourseID
+                  AND E.EnrollmentID IS NULL;
+
+                RAISERROR('Error: Student with ID %d has not completed the prerequisite course "%s" (ID: %d).', 16, 1, @_StudentID, @MissingPrereqCourseName, @MissingPrereqCourseID);
+                SET CONTEXT_INFO 0x; -- Corrected to use 0x
+                RETURN;
+            END;
+        END;
+
+        -- 6. Check if student's major allows this course (Curriculum check)
+        IF NOT EXISTS (
+            SELECT 1 FROM Education.Curriculum
+            WHERE MajorID = @StudentMajorID AND CourseID = @CourseID
+        )
+        BEGIN
+            RAISERROR('Error: Course "%s" (ID: %d) is not part of the curriculum for student''s major (ID: %d).', 16, 1, @CourseName, @CourseID, @StudentMajorID);
+            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            RETURN;
+        END
+
+        -- 7. Insert the enrollment record (this will trigger INSTEAD OF INSERT trigger)
         INSERT INTO Education.Enrollments (StudentID, OfferingID, EnrollmentDate, Status)
         VALUES (@_StudentID, @_OfferingID, GETDATE(), 'Enrolled');
 
-        -- Decrease the capacity of the course offering
-        UPDATE Education.CourseOfferings
-        SET Capacity = Capacity - 1
-        WHERE OfferingID = @_OfferingID;
+        -- Get the newly generated EnrollmentID and set the output parameter
+        SET @NewEnrollmentID = SCOPE_IDENTITY();
 
-        -- Log the successful enrollment event
-        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
-        VALUES (
-            'StudentEnrolled',
-            'Student with ID ' + CAST(@_StudentID AS NVARCHAR(10)) + ' enrolled in Course Offering ID ' + CAST(@_OfferingID AS NVARCHAR(10)) + ' (' + @CourseName + ').',
-            SUSER_SNAME() -- Log the user who executed the procedure (usually dbo or a specific user)
-        );
+        -- Log success
+        DECLARE @LogDescription NVARCHAR(MAX);
+        SET @LogDescription = N'Student ID ' + CAST(@_StudentID AS NVARCHAR(10)) + N' enrolled in Course Offering ID ' + CAST(@_OfferingID AS NVARCHAR(10)) + N'. EnrollmentID: ' + CAST(@NewEnrollmentID AS NVARCHAR(10));
+        INSERT INTO Education.LogEvents (EventType, EventDescription)
+        VALUES (N'Student Enrolled', @LogDescription);
 
-        COMMIT TRANSACTION;
-        PRINT 'SUCCESS: Student with ID ' + CAST(@_StudentID AS NVARCHAR(10)) + ' successfully enrolled in course "' + @CourseName + '" (Offering ID: ' + CAST(@_OfferingID AS NVARCHAR(10)) + ').';
+        PRINT N'SUCCESS: Student ' + CAST(@_StudentID AS NVARCHAR(10)) + N' enrolled in Course Offering ' + CAST(@_OfferingID AS NVARCHAR(10)) + N'. EnrollmentID: ' + CAST(@NewEnrollmentID AS NVARCHAR(10));
 
     END TRY
     BEGIN CATCH
-        -- If any error occurs, rollback the transaction
-        IF @@TRANCOUNT > 0
-            ROLLBACK TRANSACTION;
+        SET CONTEXT_INFO 0x; -- Corrected to use 0x in CATCH block too
 
-        -- Re-raise the error for the calling application
-        DECLARE @ErrorMessage NVARCHAR(MAX) = ERROR_MESSAGE();
-        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-        DECLARE @ErrorState INT = ERROR_STATE();
+        DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
+        SELECT
+            @ErrorMessage = ERROR_MESSAGE(),
+            @ErrorSeverity = ERROR_SEVERITY(),
+            @ErrorState = ERROR_STATE();
+
+        INSERT INTO Education.LogEvents (EventType, EventDescription)
+        VALUES (N'Enrollment Failed', N'Error enrolling student ' + CAST(@_StudentID AS NVARCHAR(10)) + N' in offering ' + CAST(@_OfferingID AS NVARCHAR(10)) + N': ' + @ErrorMessage);
 
         RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
     END CATCH
+
+    SET CONTEXT_INFO 0x; -- Corrected to use 0x after successful execution
 END;
 GO
-
-
 
 -- Description: Adds a new student to the Education schema
 CREATE PROCEDURE Education.sp_AddStudent
@@ -514,7 +533,6 @@ BEGIN
 END;
 GO
 
-
 -- Description : stored prosedure for suggesting course for student
 CREATE PROCEDURE Education.SuggestCoursesForStudent
     @StudentID INT,
@@ -583,7 +601,7 @@ BEGIN
     --    a. Part of student's major curriculum (from Education.Curriculum)
     --    b. Not already completed by the student
     --    c. Currently offered
-    --    d. Prerequisite checks (if Education.CoursePrerequisites table is populated)
+    --    d. Prerequisite checks (if Education.Prerequisites table is populated)
     --    e. Order by RequiredSemester and then by whether it's mandatory
     SELECT
         C.CourseID,
@@ -606,7 +624,7 @@ BEGIN
         -- Check for prerequisites: Ensure all prerequisites for the suggested course are met
         AND NOT EXISTS (
             SELECT 1
-            FROM Education.CoursePrerequisites AS CP
+            FROM Education.Prerequisites AS CP -- <<<<<<<<<<<<<<< این خط تغییر یافته است >>>>>>>>>>>>>>>
             WHERE CP.CourseID = C.CourseID -- The course we are suggesting
               AND CP.PrerequisiteCourseID NOT IN (SELECT CourseID FROM #CompletedCourses) -- Prerequisite is NOT completed
         )
@@ -621,3 +639,4 @@ BEGIN
 
 END;
 GO
+
