@@ -1,4 +1,4 @@
-USE UniversityDB;
+﻿USE UniversityDB;
 GO
 
 
@@ -175,130 +175,111 @@ CREATE PROCEDURE Library.RegisterMember
 AS
 BEGIN
     SET NOCOUNT ON;
-    SET XACT_ABORT ON; -- Ensures transaction aborts on runtime error
+    SET XACT_ABORT ON;
 
     DECLARE @LogDescription NVARCHAR(MAX);
     DECLARE @NewMemberID INT;
     DECLARE @EducationEntityExists BIT = 0;
     DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+    
+    -- متغیر مخصوص context_info
+    DECLARE @ContextTag VARBINARY(128) = CONVERT(VARBINARY(128), 'RegisterMember');
 
-    PRINT N'DEBUG_RM: Starting Library.RegisterMember for NationalCode: ' + @NationalCode + N', MemberType: ' + @MemberType;
-
-    -- Set CONTEXT_INFO to signal that this operation originates from RegisterMember
-    SET CONTEXT_INFO 0x01;
-    PRINT N'DEBUG_RM: CONTEXT_INFO set to 0x01.';
+    -- ست کردن context_info
+    SET CONTEXT_INFO @ContextTag;
+    PRINT N'DEBUG_RM: CONTEXT_INFO set.';
 
     BEGIN TRY
-        -- 1. Validate the @MemberType parameter against allowed values
+        -- بررسی MemberType معتبر
         IF @MemberType NOT IN ('Student', 'Professor', 'Staff')
         BEGIN
             RAISERROR('Error: Invalid MemberType. Must be ''Student'', ''Professor'', or ''Staff''.', 16, 1);
             RETURN;
         END
-        PRINT N'DEBUG_RM: MemberType validation passed.';
 
-        -- 2. Validate @NationalCode for uniqueness in Library.Members table
+        -- بررسی عدم وجود NationalCode تکراری
         IF EXISTS (SELECT 1 FROM Library.Members WHERE NationalCode = @NationalCode)
         BEGIN
-            RAISERROR('Error: A member with this National Code (%s) already exists in Library.Members.', 16, 1, @NationalCode);
+            RAISERROR('Error: A member with this National Code (%s) already exists.', 16, 1, @NationalCode);
             RETURN;
         END
-        PRINT N'DEBUG_RM: NationalCode uniqueness check passed.';
 
-        -- 3. Handle linking with Education schema based on @MemberType
+        -- بررسی ارتباط با اطلاعات آموزشی
         IF @MemberType = 'Student'
         BEGIN
-            PRINT N'DEBUG_RM: MemberType is Student. Checking Education_StudentID: ' + ISNULL(CAST(@Education_StudentID AS NVARCHAR(10)), 'NULL');
-            IF @Education_StudentID IS NOT NULL
-            BEGIN
-                SET @EducationEntityExists = 1;
-                PRINT N'DEBUG_RM: StudentID assumed valid for Education.Students (validation commented).';
-            END
-            ELSE
-            BEGIN
+            IF @Education_StudentID IS NULL
                 SELECT @Education_StudentID = StudentID FROM Education.Students WHERE NationalCode = @NationalCode;
-                IF @Education_StudentID IS NOT NULL
-                    SET @EducationEntityExists = 1;
-                PRINT N'DEBUG_RM: Auto-linked StudentID: ' + ISNULL(CAST(@Education_StudentID AS NVARCHAR(10)), 'NULL');
-            END
+
+            IF @Education_StudentID IS NOT NULL
+                SET @EducationEntityExists = 1;
+
             SET @Education_ProfessorID = NULL;
         END
         ELSE IF @MemberType = 'Professor'
         BEGIN
-            PRINT N'DEBUG_RM: MemberType is Professor. Checking Education_ProfessorID: ' + ISNULL(CAST(@Education_ProfessorID AS NVARCHAR(10)), 'NULL');
             IF @Education_ProfessorID IS NOT NULL
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM Education.Professors WHERE ProfessorID = @Education_ProfessorID)
                 BEGIN
-                    RAISERROR('Error: Provided Education_ProfessorID %d does not exist in Education.Professors.', 16, 1, @Education_ProfessorID);
+                    RAISERROR('Error: ProfessorID %d does not exist.', 16, 1, @Education_ProfessorID);
                     RETURN;
                 END
                 SET @EducationEntityExists = 1;
-                PRINT N'DEBUG_RM: ProfessorID matched in Education.Professors.';
-            END
-            ELSE
-            BEGIN
-                PRINT N'Warning: MemberType is ''Professor'' but no Education_ProfessorID was provided, and Education.Professors table does not contain NationalCode for auto-linking. Registering without direct link to Education.Professors.';
             END
             SET @Education_StudentID = NULL;
         END
-        ELSE IF @MemberType = 'Staff'
+        ELSE
         BEGIN
             SET @Education_StudentID = NULL;
             SET @Education_ProfessorID = NULL;
-            PRINT N'DEBUG_RM: MemberType is Staff. No Education link.';
         END
 
-        PRINT N'DEBUG_RM: Attempting INSERT into Library.Members. NationalCode: ' + @NationalCode + N', FirstName: ' + @FirstName + N', LastName: ' + @LastName + N', Email: ' + ISNULL(@ContactEmail, 'NULL') + N', Phone: ' + ISNULL(@ContactPhone, 'NULL') + N', StudentID: ' + ISNULL(CAST(@Education_StudentID AS NVARCHAR(10)), 'NULL') + N', ProfessorID: ' + ISNULL(CAST(@Education_ProfessorID AS NVARCHAR(10)), 'NULL');
-
-        -- Perform the actual insert. This will be intercepted by the INSTEAD OF INSERT trigger.
-        INSERT INTO Library.Members (NationalCode, FirstName, LastName, MemberType, ContactEmail, ContactPhone, Education_StudentID, Education_ProfessorID, JoinDate, Status)
-        VALUES (@NationalCode, @FirstName, @LastName, @MemberType, @ContactEmail, @ContactPhone, @Education_StudentID, @Education_ProfessorID, GETDATE(), 'Active');
+        -- درج عضو جدید
+        INSERT INTO Library.Members (
+            NationalCode, FirstName, LastName, MemberType, ContactEmail, ContactPhone,
+            Education_StudentID, Education_ProfessorID, JoinDate, Status
+        )
+        VALUES (
+            @NationalCode, @FirstName, @LastName, @MemberType, @ContactEmail, @ContactPhone,
+            @Education_StudentID, @Education_ProfessorID, GETDATE(), 'Active'
+        );
 
         SET @NewMemberID = SCOPE_IDENTITY();
-        PRINT N'DEBUG_RM: Member inserted (via INSTEAD OF trigger). New MemberID: ' + ISNULL(CAST(@NewMemberID AS NVARCHAR(10)), 'NULL (SCOPE_IDENTITY() was NULL)');
 
-        -- 5. Log the successful member registration event in Library.AuditLog
-        SET @LogDescription = N'New library member registered. MemberID: ' + ISNULL(CAST(@NewMemberID AS NVARCHAR(10)), 'N/A (Failed Insert)') +
+        -- درج در AuditLog
+        SET @LogDescription = N'New library member registered. MemberID: ' + CAST(@NewMemberID AS NVARCHAR) +
                               N', NationalCode: ' + @NationalCode +
                               N', Type: ' + @MemberType +
                               N', Linked to Education: ' + IIF(@EducationEntityExists = 1, 'Yes', 'No') + '.';
+
         INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
         VALUES (N'Member Registered', @LogDescription, @EventUser);
-        PRINT N'DEBUG_RM: AuditLog for success inserted.';
-
-        PRINT N'SUCCESS_RM: Member ' + @FirstName + N' ' + @LastName + N' (' + @MemberType + N') registered successfully with MemberID: ' + ISNULL(CAST(@NewMemberID AS NVARCHAR(10)), 'N/A');
-
     END TRY
     BEGIN CATCH
-        -- DO NOT ROLLBACK TRANSACTION HERE. Let the calling transaction handle it.
-        DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
-        SELECT
-            @ErrorMessage = ERROR_MESSAGE(),
-            @ErrorSeverity = ERROR_SEVERITY(),
-            @ErrorState = ERROR_STATE();
+        DECLARE @ErrorMessage NVARCHAR(MAX) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
 
-        PRINT N'DEBUG_RM: Entering CATCH block. Error: ' + @ErrorMessage;
-        SET @LogDescription = N'Error registering new library member for NationalCode ' + ISNULL(@NationalCode, 'UNKNOWN') + N': ' + @ErrorMessage;
+        SET @LogDescription = N'Error registering member with NationalCode ' + ISNULL(@NationalCode, 'UNKNOWN') + N': ' + @ErrorMessage;
 
-        -- Attempt to log failure, but don't re-raise error if AuditLog insert itself fails
         BEGIN TRY
             INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
             VALUES (N'Member Registration Failed', @LogDescription, @EventUser);
         END TRY
         BEGIN CATCH
-            PRINT N'DEBUG_RM: Failed to log error to AuditLog for NationalCode: ' + ISNULL(@NationalCode, 'UNKNOWN') + N'. Secondary error: ' + ERROR_MESSAGE();
+            -- خطا در ثبت لاگ نادیده گرفته می‌شود
         END CATCH;
 
-        -- Re-raise the original error to the calling batch
         RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
-    END CATCH;
+    END CATCH
 
-    -- Always clear CONTEXT_INFO after the procedure execution, regardless of success or error that might have propagated.
-    SET CONTEXT_INFO NULL;
+    -- پاکسازی context_info
+    SET CONTEXT_INFO 0x0;
     PRINT N'DEBUG_RM: CONTEXT_INFO cleared.';
 END;
 GO
+
+
 
 -- Description: Registers a book borrow event for a library member.
 --              Validates availability, updates inventory, and logs the borrow.
