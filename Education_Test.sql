@@ -418,3 +418,228 @@ from Education.CourseOfferings;
 
 -- ===================================================================== Triggers =============================================================================
 
+USE UniversityDB;
+GO
+
+PRINT '--- Testing TR_Education_Students_ValidateNationalCode Trigger ---' + CHAR(13) + CHAR(10);
+
+-- Test Case 1: Successful INSERT with a VALID National Code
+PRINT 'Test Case 1: Inserting a student with a VALID National Code (Expected: SUCCESS)';
+BEGIN TRY
+    BEGIN TRANSACTION;
+    INSERT INTO Education.Students (NationalCode, FirstName, LastName, DateOfBirth, Email, PhoneNumber, EnrollmentDate, DepartmentID, MajorID, Status, AddressID)
+    VALUES ('1234567890', 'Valid', 'Student1', '2000-01-01', 'valid.student1@example.com', '09123456789', GETDATE(),
+            (SELECT TOP 1 DepartmentID FROM Education.Departments),
+            (SELECT TOP 1 MajorID FROM Education.Majors),
+            'Active', NULL);
+    COMMIT TRANSACTION;
+    PRINT 'SUCCESS: Student with valid National Code inserted.';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'FAILED: Unexpected error for valid National Code: ' + ERROR_MESSAGE();
+END CATCH;
+PRINT CHAR(13) + CHAR(10);
+
+-- Test Case 2: INSERT with an INVALID National Code (Less than 10 digits)
+PRINT 'Test Case 2: Inserting a student with an INVALID National Code (less than 10 digits) (Expected: FAILURE)';
+BEGIN TRY
+    BEGIN TRANSACTION;
+    INSERT INTO Education.Students (NationalCode, FirstName, LastName, DateOfBirth, Email, PhoneNumber, EnrollmentDate, DepartmentID, MajorID, Status, AddressID)
+    VALUES ('123', 'Invalid', 'Student2', '2000-01-02', 'invalid.student2@example.com', '09123456789', GETDATE(),
+            (SELECT TOP 1 DepartmentID FROM Education.Departments),
+            (SELECT TOP 1 MajorID FROM Education.Majors),
+            'Active', NULL);
+    COMMIT TRANSACTION;
+    PRINT 'FAILED: Unexpected success for invalid National Code (less than 10 digits).';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'SUCCESS: Insertion blocked as expected for invalid National Code (less than 10 digits): ' + ERROR_MESSAGE();
+END CATCH;
+PRINT CHAR(13) + CHAR(10);
+
+-- Test Case 3: INSERT with an INVALID National Code (Non-numeric characters)
+PRINT 'Test Case 3: Inserting a student with an INVALID National Code (non-numeric) (Expected: FAILURE)';
+BEGIN TRY
+    BEGIN TRANSACTION;
+    INSERT INTO Education.Students (NationalCode, FirstName, LastName, DateOfBirth, Email, PhoneNumber, EnrollmentDate, DepartmentID, MajorID, Status, AddressID)
+    VALUES ('ABCDEFGHIJ', 'Invalid', 'Student3', '2000-01-03', 'invalid.student3@example.com', '09123456789', GETDATE(),
+            (SELECT TOP 1 DepartmentID FROM Education.Departments),
+            (SELECT TOP 1 MajorID FROM Education.Majors),
+            'Active', NULL);
+    COMMIT TRANSACTION;
+    PRINT 'FAILED: Unexpected success for invalid National Code (non-numeric).';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'SUCCESS: Insertion blocked as expected for invalid National Code (non-numeric): ' + ERROR_MESSAGE();
+END CATCH;
+PRINT CHAR(13) + CHAR(10);
+
+-- Test Case 4: INSERT with an INVALID National Code (All repeating digits)
+PRINT 'Test Case 4: Inserting a student with an INVALID National Code (all repeating digits) (Expected: FAILURE)';
+BEGIN TRY
+    BEGIN TRANSACTION;
+    INSERT INTO Education.Students (NationalCode, FirstName, LastName, DateOfBirth, Email, PhoneNumber, EnrollmentDate, DepartmentID, MajorID, Status, AddressID)
+    VALUES ('1111111111', 'Invalid', 'Student4', '2000-01-04', 'invalid.student4@example.com', '09123456789', GETDATE(),
+            (SELECT TOP 1 DepartmentID FROM Education.Departments),
+            (SELECT TOP 1 MajorID FROM Education.Majors),
+            'Active', NULL);
+    COMMIT TRANSACTION;
+    PRINT 'FAILED: Unexpected success for invalid National Code (repeating digits).';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'SUCCESS: Insertion blocked as expected for invalid National Code (repeating digits): ' + ERROR_MESSAGE();
+END CATCH;
+PRINT CHAR(13) + CHAR(10);
+
+
+-- Clean up the test student inserted in Test Case 1 if it exists
+PRINT 'Cleaning up test data...';
+DELETE FROM Education.Students WHERE NationalCode = '1234567890';
+PRINT '--- Testing Complete ---';
+
+
+
+
+-- 1. Update a student's status to activate the trigger.
+-- Ensure that StudentID 1000 (or any other valid StudentID) exists in your database.
+-- Also, the new status must be different from the student's current status for the change to be detected.
+UPDATE Education.Students
+SET Status = 'Suspended' -- Change status to 'Suspended' or any other valid status
+WHERE StudentID = 1025; -- Enter the desired StudentID here
+GO
+
+-- 2. Check the contents of the Education.LogEvents table to verify if the trigger logged the event.
+SELECT *
+FROM Education.LogEvents
+ORDER BY LogID DESC; -- Order by LogID to see the latest events first
+GO
+
+
+
+select *
+from Education.Enrollments;
+
+select *
+from Education.Grades;
+
+-- 1. Insert a new grade to activate the trigger.
+-- IMPORTANT: Use an EnrollmentID that exists in Education.Enrollments
+-- AND has NOT yet been assigned a grade in Education.Grades (due to the UNIQUE constraint on EnrollmentID in Grades).
+-- Replace 2001 with a valid EnrollmentID from your database.
+INSERT INTO Education.Grades (EnrollmentID, FinalGrade)
+VALUES (1, 15.5); -- Example: A passing grade (FinalGrade >= 10 leads to 'Completed' in EnrollmentStatus)
+GO
+
+-- To test an 'UPDATE' scenario (e.g., if you want to change an existing grade for EnrollmentID 2001):
+-- UPDATE Education.Grades
+-- SET FinalGrade = 8.0 -- Example: A failing grade (FinalGrade < 10 leads to 'Failed')
+-- WHERE EnrollmentID = 2001; -- Use the EnrollmentID of an existing grade
+
+-- To test a 'Failed' scenario with a new insert (ensure 2002 is a valid, unused EnrollmentID):
+-- INSERT INTO Education.Grades (EnrollmentID, FinalGrade)
+-- VALUES (2002, 8.0); -- Example: A failing grade (FinalGrade < 10 leads to 'Failed')
+-- GO
+
+-- 2. Check the updated status in Education.Enrollments table.
+-- Include the EnrollmentID(s) you just modified.
+SELECT EnrollmentID, Status
+FROM Education.Enrollments
+WHERE EnrollmentID IN (1, 2); -- Adjust based on the EnrollmentIDs you used
+
+-- 3. Check the logged event in Education.LogEvents table.
+SELECT *
+FROM Education.LogEvents
+ORDER BY LogID DESC; -- Order by LogID to see the latest events first
+GO
+
+
+
+
+
+-- test TR_Education_Enrollments_LogEnrollment
+
+select *
+from Education.LogEvents;
+
+
+
+
+
+
+-- 1. Attempt a direct INSERT into Education.Enrollments.
+-- This operation is expected to be blocked by the trg_PreventDirectEnrollmentOutsideSP trigger.
+-- You can use any plausible (even non-existent) StudentID and OfferingID here,
+-- as the trigger will fire and prevent the insert BEFORE foreign key checks occur.
+PRINT '--- Attempting Direct Enrollment (Expected to Fail) ---';
+INSERT INTO Education.Enrollments (StudentID, OfferingID, EnrollmentDate, Status)
+VALUES (9999, 8888, GETDATE(), 'Enrolled'); -- Using dummy IDs for a direct insert attempt
+GO
+
+-- 2. Check the Education.Enrollments table to confirm no new record was inserted directly.
+-- You should NOT see any record with StudentID 9999 or OfferingID 8888 here.
+PRINT '--- Checking Enrollments Table (No Direct Insert Expected) ---';
+SELECT EnrollmentID, StudentID, OfferingID, EnrollmentDate, Status
+FROM Education.Enrollments
+WHERE StudentID = 9999 OR OfferingID = 8888;
+GO
+
+-- 3. Check the Education.LogEvents table for the 'Direct Enrollment Blocked' entry.
+-- This confirms the trigger successfully intercepted and logged the unauthorized attempt.
+PRINT '--- Checking LogEvents for Blocked Attempt ---';
+SELECT EventType, EventDescription, UserID, EventDate
+FROM Education.LogEvents
+WHERE EventType = 'Direct Enrollment Blocked'
+ORDER BY LogID DESC;
+GO
+
+
+
+
+select *
+from Library.Members;
+
+-- Declare variables for the test
+DECLARE @TestStudentID INT = 1029; 
+DECLARE @OldStatus NVARCHAR(20);
+DECLARE @NewStatus NVARCHAR(20) = 'Expelled'; -- Or 'Withdrawn' to test that scenario
+
+-- 1. Check the student's initial status and the corresponding library member's status.
+PRINT '--- Before Student Status Update ---';
+SELECT StudentID, NationalCode, Status AS StudentStatus
+FROM Education.Students
+WHERE StudentID = @TestStudentID;
+
+SELECT MemberID, Education_StudentID, Status AS MemberStatus
+FROM Library.Members
+WHERE Education_StudentID = @TestStudentID;
+
+-- Get the current status for comparison (optional, but good for understanding)
+SELECT @OldStatus = Status FROM Education.Students WHERE StudentID = @TestStudentID;
+PRINT 'Student ' + CAST(@TestStudentID AS NVARCHAR(10)) + ' current status: ' + @OldStatus;
+
+-- 2. Update the student's status to activate the trigger.
+-- The trigger Education.trg_DeactivateLibraryMemberOnStudentStatusChange (AFTER UPDATE) will fire.
+PRINT '--- Updating Student Status to ' + @NewStatus + ' ---';
+UPDATE Education.Students
+SET Status = @NewStatus -- Change to 'Expelled' or 'Withdrawn'
+WHERE StudentID = @TestStudentID;
+
+-- 3. Check the student's new status and the library member's updated status.
+PRINT '--- After Student Status Update ---';
+SELECT StudentID, NationalCode, Status AS StudentStatus
+FROM Education.Students
+WHERE StudentID = @TestStudentID;
+
+SELECT MemberID, Education_StudentID, Status AS MemberStatus
+FROM Library.Members
+WHERE Education_StudentID = @TestStudentID;
+
+-- 4. Check the Education.LogEvents table for entries related to this action.
+-- You should see two entries: 'Student Status Change - Library Deactivation Attempt' and 'Library Member Deactivated'.
+SELECT EventType, EventDescription, UserID, EventDate
+FROM Education.LogEvents
+ORDER BY LogID DESC;

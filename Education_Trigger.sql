@@ -68,27 +68,64 @@ GO
 
 
 -- Trigger to log changes to the Status column in the Students table
-CREATE TRIGGER TR_Education_Students_LogStatusChange
+CREATE TRIGGER Education.trg_DeactivateLibraryMemberOnStudentStatusChange
 ON Education.Students
 AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
 
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+    DECLARE @LogDescription NVARCHAR(MAX);
+
     -- Check if the Status column was updated
     IF UPDATE(Status)
     BEGIN
+        -- Handle students whose status changed to a deactivating status
+        IF EXISTS (SELECT 1 FROM INSERTED i JOIN DELETED d ON i.StudentID = d.StudentID WHERE i.Status <> d.Status AND i.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'))
+        BEGIN
+            -- Deactivate corresponding Library Member
+            UPDATE LM
+            SET Status = 'Inactive'
+            FROM Library.Members AS LM
+            INNER JOIN INSERTED AS I ON LM.NationalCode = (SELECT NationalCode FROM Education.Students WHERE StudentID = I.StudentID) -- Assuming NationalCode is the link
+            INNER JOIN DELETED AS D ON I.StudentID = D.StudentID
+            WHERE I.Status <> D.Status -- Only process if status actually changed
+              AND I.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Only for these specific statuses
+
+            -- Log the status change and library deactivation
+            INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
+            SELECT
+                'Student Status Change - Member Deactivated', -- Shortened string to fit NVARCHAR(50) (44 chars)
+                'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
+                ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
+                ' to: ' + ISNULL(I.Status, 'NULL') +
+                '. Corresponding Library member deactivated.',
+                @EventUser
+            FROM
+                INSERTED AS I
+            INNER JOIN
+                DELETED AS D ON I.StudentID = D.StudentID
+            WHERE
+                I.Status <> D.Status -- Only log if status actually changed
+                AND I.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Only log deactivation if new status implies it
+        END
+
+        -- Handle all other student status changes (if not already handled by deactivation logic)
+        -- This ensures all status changes are logged, not just those leading to deactivation
         INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
         SELECT
-            'StudentStatusChanged',
+            'Student Status Changed', -- Shortened string (22 chars)
             'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
             ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
             ' to: ' + ISNULL(I.Status, 'NULL'),
-            SUSER_SNAME() -- Log the user who performed the update
+            @EventUser
         FROM
             INSERTED AS I
         INNER JOIN
-            DELETED AS D ON I.StudentID = D.StudentID;
+            DELETED AS D ON I.StudentID = D.StudentID
+        WHERE I.Status <> D.Status -- Only log if status actually changed
+              AND I.Status NOT IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Exclude statuses handled by deactivation logic (to avoid duplicate logs)
     END
 END;
 GO
@@ -151,104 +188,6 @@ END;
 GO
 
 
--- Updates the Capacity of a CourseOffering
-CREATE TRIGGER Education.trg_UpdateCourseCapacityOnEnrollmentChange
-ON Education.Enrollments
-AFTER INSERT, UPDATE, DELETE
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    DECLARE @OfferingID INT;
-    DECLARE @CourseName NVARCHAR(100);
-    DECLARE @LogDescription NVARCHAR(MAX);
-    DECLARE @CapacityChange INT;
-    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME(); -- Capture the user who initiated the action
-
-    -- Handle INSERT operations
-    IF EXISTS (SELECT * FROM INSERTED) AND NOT EXISTS (SELECT * FROM DELETED)
-    BEGIN
-        -- A new enrollment has been inserted (Capacity decreases)
-        SELECT @OfferingID = OfferingID FROM INSERTED;
-
-        UPDATE CO
-        SET Capacity = CO.Capacity - 1
-        FROM Education.CourseOfferings AS CO
-        INNER JOIN INSERTED AS I ON CO.OfferingID = I.OfferingID;
-
-        SELECT @CourseName = C.CourseName
-        FROM Education.CourseOfferings AS CO
-        INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
-        WHERE CO.OfferingID = @OfferingID;
-
-        SET @LogDescription = N'Course capacity decreased for "' + @CourseName + N'" (OfferingID: ' + CAST(@OfferingID AS NVARCHAR(10)) + N') due to new enrollment. New capacity: ' + CAST((SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @OfferingID) AS NVARCHAR(10));
-        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID) VALUES (N'Capacity Update', @LogDescription, @EventUser);
-    END
-    -- Handle DELETE operations (Enrollment removed)
-    ELSE IF EXISTS (SELECT * FROM DELETED) AND NOT EXISTS (SELECT * FROM INSERTED)
-    BEGIN
-        -- An enrollment has been deleted (Capacity increases)
-        SELECT @OfferingID = OfferingID FROM DELETED;
-
-        UPDATE CO
-        SET Capacity = CO.Capacity + 1
-        FROM Education.CourseOfferings AS CO
-        INNER JOIN DELETED AS D ON CO.OfferingID = D.OfferingID;
-
-        SELECT @CourseName = C.CourseName
-        FROM Education.CourseOfferings AS CO
-        INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
-        WHERE CO.OfferingID = @OfferingID;
-
-        SET @LogDescription = N'Course capacity increased for "' + @CourseName + N'" (OfferingID: ' + CAST(@OfferingID AS NVARCHAR(10)) + N') due to enrollment deletion. New capacity: ' + CAST((SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @OfferingID) AS NVARCHAR(10));
-        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID) VALUES (N'Capacity Update', @LogDescription, @EventUser);
-    END
-    -- Handle UPDATE operations (Enrollment status changed)
-    ELSE IF EXISTS (SELECT * FROM INSERTED) AND EXISTS (SELECT * FROM DELETED)
-    BEGIN
-        -- Check if status changed from 'Enrolled' to 'Dropped', 'Failed', or 'Withdrawn'
-        -- Or if status changed from 'Dropped'/'Failed'/'Withdrawn' back to 'Enrolled' (less common but possible)
-        SELECT
-            @OfferingID = I.OfferingID,
-            @CapacityChange =
-                CASE
-                    -- If old status was 'Enrolled' but new status is 'Dropped', 'Failed', 'Withdrawn' -> Capacity increases by 1
-                    WHEN D.Status = 'Enrolled' AND I.Status IN ('Dropped', 'Failed', 'Withdrawn') THEN 1
-                    -- If old status was 'Dropped', 'Failed', 'Withdrawn' but new status is 'Enrolled' -> Capacity decreases by 1
-                    WHEN D.Status IN ('Dropped', 'Failed', 'Withdrawn') AND I.Status = 'Enrolled' THEN -1
-                    ELSE 0 -- No change relevant to capacity, or status is already Completed
-                END
-        FROM INSERTED AS I
-        INNER JOIN DELETED AS D ON I.EnrollmentID = D.EnrollmentID
-        WHERE I.Status <> D.Status; -- Only interested if status actually changed
-
-        IF @CapacityChange <> 0
-        BEGIN
-            UPDATE CO
-            SET Capacity = CO.Capacity + @CapacityChange
-            FROM Education.CourseOfferings AS CO
-            INNER JOIN INSERTED AS I ON CO.OfferingID = I.OfferingID;
-
-            SELECT @CourseName = C.CourseName
-            FROM Education.CourseOfferings AS CO
-            INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
-            WHERE CO.OfferingID = @OfferingID;
-
-            SET @LogDescription = N'Course capacity adjusted for "' + @CourseName + N'" (OfferingID: ' + CAST(@OfferingID AS NVARCHAR(10)) + N') due to enrollment status change. Change: ' + CAST(@CapacityChange AS NVARCHAR(10)) + N'. New capacity: ' + CAST((SELECT Capacity FROM Education.CourseOfferings WHERE OfferingID = @OfferingID) AS NVARCHAR(10));
-            INSERT INTO Education.LogEvents (EventType, EventDescription, UserID) VALUES (N'Capacity Update', @LogDescription, @EventUser);
-        END
-    END
-END;
-GO
-
-
--- Drop the existing trigger if it exists
-IF OBJECT_ID('Education.trg_PreventDirectEnrollmentOutsideSP', 'TR') IS NOT NULL
-BEGIN
-    DROP TRIGGER Education.trg_PreventDirectEnrollmentOutsideSP;
-    PRINT 'Dropped existing trigger: Education.trg_PreventDirectEnrollmentOutsideSP';
-END
-GO
 -- Prevents direct INSERT operations into Education.Enrollments table.
 -- Forces users to use the sp_EnrollStudentInCourse stored procedure for enrollments.
 CREATE TRIGGER Education.trg_PreventDirectEnrollmentOutsideSP
@@ -292,7 +231,7 @@ GO
 -- Description: This trigger automatically deactivates a corresponding library member's status
 --				in the Library.Members table when a student's status in Education.Students
 --				changes to 'Expelled' or 'Withdrawn'.
-CREATE OR ALTER TRIGGER Education.trg_DeactivateLibraryMemberOnStudentStatusChange
+CREATE TRIGGER Education.trg_DeactivateLibraryMemberOnStudentStatusChange
 ON Education.Students
 AFTER UPDATE
 AS

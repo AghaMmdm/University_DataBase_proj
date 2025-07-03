@@ -148,17 +148,6 @@ END;
 GO
 
 
-IF OBJECT_ID('Library.RegisterMember', 'P') IS NOT NULL
-BEGIN
-    DROP PROCEDURE Library.RegisterMember;
-    PRINT 'Procedure Library.RegisterMember dropped successfully.';
-END
-ELSE
-BEGIN
-    PRINT 'Procedure Library.RegisterMember does not exist.';
-END;
-GO
-
 -- Description: Registers a new member in the Library.Members table.
 --              It links to an existing student or professor from the Education schema
 --              based on StudentID/ProfessorID and NationalCode (for students).

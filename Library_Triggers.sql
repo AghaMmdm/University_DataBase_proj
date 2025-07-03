@@ -1,15 +1,5 @@
 ﻿USE UniversityDB;
 GO
-IF OBJECT_ID('Education.trg_Education_Students_CreateLibraryMember', 'TR') IS NOT NULL
-BEGIN
-    DROP TRIGGER Education.trg_Education_Students_CreateLibraryMember;
-    PRINT 'Trigger Education.trg_Education_Students_CreateLibraryMember dropped successfully.';
-END
-ELSE
-BEGIN
-    PRINT 'Trigger Education.trg_Education_Students_CreateLibraryMember does not exist.';
-END;
-GO
 
 -- Description: Automatically registers a new student from Education.Students as a member in Library.Members after successful student insertion.
 CREATE TRIGGER Education.trg_Education_Students_CreateLibraryMember
@@ -81,90 +71,6 @@ END;
 GO
 
 
-IF OBJECT_ID('Library.trg_Library_PreventDirectMemberInsert', 'TR') IS NOT NULL
-BEGIN
-    DROP TRIGGER Library.trg_Library_PreventDirectMemberInsert;
-    PRINT 'Trigger trg_Library_PreventDirectMemberInsert dropped successfully.';
-END
-ELSE
-BEGIN
-    PRINT 'Trigger trg_Library_PreventDirectMemberInsert does not exist.';
-END;
-GO
-
-PRINT '--- Creating new trigger trg_Library_PreventDirectMemberInsert with CONTEXT_INFO debug output ---';
-GO
-
-
--- Description: Prevents direct INSERT operations into Library.Members table. Only allows inserts that originate from the Library.RegisterMember stored procedure.
-CREATE TRIGGER trg_Library_PreventDirectMemberInsert
-ON Library.Members
-INSTEAD OF INSERT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    SET XACT_ABORT ON; -- Ensure transaction aborts on error
-
-    -- DEBUGGING OUTPUT - THESE ARE THE LINES WE NEED TO SEE!
-    DECLARE @currentContextInfo VARBINARY(128);
-    SET @currentContextInfo = CONTEXT_INFO();
-    PRINT N'DEBUG_TR_INFO: Inside trigger trg_Library_PreventDirectMemberInsert.';
-    PRINT N'DEBUG_TR_INFO: CONTEXT_INFO() value: ' + ISNULL(CONVERT(NVARCHAR(MAX), @currentContextInfo, 1), 'NULL');
-    PRINT N'DEBUG_TR_INFO: OBJECT_NAME(@@PROCID): ' + ISNULL(OBJECT_NAME(@@PROCID), 'NULL');
-    PRINT N'DEBUG_TR_INFO: OBJECT_SCHEMA_NAME(@@PROCID): ' + ISNULL(OBJECT_SCHEMA_NAME(@@PROCID), 'NULL');
-
-    -- Check if the current execution context has set the specific CONTEXT_INFO value
-    IF @currentContextInfo = 0x01
-    BEGIN
-        PRINT N'DEBUG_TR_INFO: CONTEXT_INFO check PASSED. Attempting actual insert into Library.Members.';
-        BEGIN TRY
-            INSERT INTO Library.Members (
-                NationalCode,
-                FirstName,
-                LastName,
-                MemberType,
-                ContactEmail,
-                ContactPhone,
-                Education_StudentID,
-                Education_ProfessorID,
-                JoinDate,
-                Status
-            )
-            SELECT
-                NationalCode,
-                FirstName,
-                LastName,
-                MemberType,
-                ContactEmail,
-                ContactPhone,
-                Education_StudentID,
-                Education_ProfessorID,
-                JoinDate,
-                Status
-            FROM INSERTED;
-            PRINT N'DEBUG_TR_INFO: Insert into Library.Members completed successfully within trigger.';
-        END TRY
-        BEGIN CATCH
-            DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
-            SELECT
-                @ErrorMessage = ERROR_MESSAGE(),
-                @ErrorSeverity = ERROR_SEVERITY(),
-                @ErrorState = ERROR_STATE();
-            PRINT N'DEBUG_TR_ERROR: Error in INSTEAD OF INSERT. Original message: ' + @ErrorMessage;
-            -- Re-raise the error so the calling procedure (RegisterMember) can catch it
-            RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
-            RETURN; -- Exit the trigger
-        END CATCH;
-    END
-    ELSE
-    BEGIN
-        PRINT N'DEBUG_TR_INFO: CONTEXT_INFO check FAILED. Raising error for direct insertion.';
-        RAISERROR('Direct insertion into Library.Members table is not allowed. Please use the Library.RegisterMember stored procedure to add new members.', 16, 1);
-    END
-END;
-GO
-
-
 -- Description: Prevents borrow renewal if the book is currently reserved by another member.
 CREATE TRIGGER trg_Library_PreventRenewalIfReserved
 ON Library.Borrows
@@ -207,5 +113,81 @@ BEGIN
         RAISERROR('This book is reserved by another member. Renewal is not allowed.', 16, 1);
         ROLLBACK TRANSACTION;
     END
+END;
+GO
+
+USE UniversityDB;
+GO
+
+
+CREATE TRIGGER Library.trg_Library_PreventBorrowIfBookUnavailable
+ON Library.Borrows
+INSTEAD OF INSERT -- <<< This trigger executes instead of the INSERT operation >>>
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON; -- Ensures transaction aborts on runtime error
+
+    DECLARE @LogDescription NVARCHAR(MAX);
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+    DECLARE @BookID INT;
+    DECLARE @AvailableCopies INT;
+    DECLARE @MemberID INT;
+
+    -- Use a CURSOR to process multiple inserted rows (if multiple records are inserted simultaneously)
+    DECLARE borrow_cursor CURSOR LOCAL FOR
+    SELECT BookID, MemberID
+    FROM INSERTED;
+
+    OPEN borrow_cursor;
+    FETCH NEXT FROM borrow_cursor INTO @BookID, @MemberID;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        -- Get the number of available copies for the book
+        SELECT @AvailableCopies = AvailableCopies
+        FROM Library.Books
+        WHERE BookID = @BookID;
+
+        -- Check if any copies are available for borrowing
+        IF @AvailableCopies IS NULL -- The book with this BookID does not exist
+        BEGIN
+            RAISERROR('Error: Book with BookID %d does not exist. Borrow operation aborted for this book.', 16, 1, @BookID);
+            -- Log this attempt
+            SET @LogDescription = N'Failed borrow attempt: BookID ' + CAST(@BookID AS NVARCHAR(10)) + N' does not exist. MemberID: ' + CAST(@MemberID AS NVARCHAR(10));
+            INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+            VALUES (N'Borrow Failed (Book Not Found)', @LogDescription, @EventUser);
+            ROLLBACK TRANSACTION; -- Rollback the entire transaction if even one book is unavailable/non-existent
+            RETURN;
+        END
+        ELSE IF @AvailableCopies <= 0
+        BEGIN
+            -- If no copies are available, raise an error and cancel the insert operation
+            RAISERROR('Error: No available copies for BookID %d. Borrow operation aborted.', 16, 1, @BookID);
+            -- Log this attempt
+            SET @LogDescription = N'Failed borrow attempt: No available copies for BookID ' + CAST(@BookID AS NVARCHAR(10)) + N'. MemberID: ' + CAST(@MemberID AS NVARCHAR(10));
+            INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+            VALUES (N'Borrow Failed (No Copies)', @LogDescription, @EventUser);
+            ROLLBACK TRANSACTION; -- Rollback the entire transaction
+            RETURN;
+        END
+
+        FETCH NEXT FROM borrow_cursor INTO @BookID, @MemberID;
+    END;
+
+    CLOSE borrow_cursor;
+    DEALLOCATE borrow_cursor;
+
+    -- If all checks were successful, perform the original INSERT operation
+    INSERT INTO Library.Borrows (BorrowDate, DueDate, MemberID, BookID, ActualReturnDate)
+    SELECT BorrowDate, DueDate, MemberID, BookID, ActualReturnDate
+    FROM INSERTED;
+
+    -- You can add a successful log here, but the BorrowBook procedure itself logs
+    -- SET @LogDescription = N'Borrow operation successful for BookID(s): ' + STUFF((SELECT N', ' + CAST(BookID AS NVARCHAR(10)) FROM INSERTED FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
+    -- INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+    -- VALUES (N'Book Borrowed (Trigger Approved)', @LogDescription, @EventUser);
+    PRINT N'DEBUG_TR_PreventBorrow: Borrow operation passed trigger validation and proceeded.';
+
 END;
 GO
