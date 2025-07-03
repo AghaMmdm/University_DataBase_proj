@@ -81,42 +81,44 @@ BEGIN
 
     DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
 
-    -- Find attempted renewals where the book is reserved by someone else
+    -- Check for renewal attempts where DueDate has been extended
+    -- AND the book is reserved by someone else
     IF EXISTS (
         SELECT 1
         FROM INSERTED I
         INNER JOIN DELETED D ON I.BorrowID = D.BorrowID
         INNER JOIN Library.Reservations R ON I.BookID = R.BookID
         WHERE
-            ISNULL(I.ReturnDate, '') <> ISNULL(D.ReturnDate, '') -- Only care if ReturnDate changed
+            I.DueDate > D.DueDate -- Check if DueDate has been extended
+            AND I.ActualReturnDate IS NULL -- Ensure it's not a return operation
+            AND D.ActualReturnDate IS NULL -- And was not returned previously either
             AND R.Status = 'Active'
-            AND R.MemberID <> I.MemberID
+            AND R.MemberID <> I.MemberID -- Book is reserved by a *different* member
     )
     BEGIN
         -- Log the unauthorized renewal attempt
         INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
         SELECT
-            N'Unauthorized Renewal Attempt',
+            N'Unauthorized Renewal Attempt', -- This text is hardcoded in your trigger definition (Persian)
             N'MemberID ' + CAST(I.MemberID AS NVARCHAR) +
             N' attempted to renew BookID ' + CAST(I.BookID AS NVARCHAR) +
-            N' which is reserved by another member.',
+            N' which is reserved by another member.', -- This text is hardcoded in your trigger definition (Persian)
             @EventUser
         FROM INSERTED I
         INNER JOIN DELETED D ON I.BorrowID = D.BorrowID
         INNER JOIN Library.Reservations R ON I.BookID = R.BookID
         WHERE
-            ISNULL(I.ReturnDate, '') <> ISNULL(D.ReturnDate, '')
+            I.DueDate > D.DueDate
+            AND I.ActualReturnDate IS NULL
+            AND D.ActualReturnDate IS NULL
             AND R.Status = 'Active'
             AND R.MemberID <> I.MemberID;
 
         -- Prevent the update
-        RAISERROR('This book is reserved by another member. Renewal is not allowed.', 16, 1);
+        RAISERROR('This book is reserved by another member. Renewal is not allowed.', 16, 1); -- This message is hardcoded in your trigger definition (Persian)
         ROLLBACK TRANSACTION;
     END
 END;
-GO
-
-USE UniversityDB;
 GO
 
 
