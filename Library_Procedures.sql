@@ -12,7 +12,7 @@ CREATE PROCEDURE Library.AddBook
     @_CategoryName NVARCHAR(100),
     @_TotalCopies INT = 1,
     @_Description NVARCHAR(MAX) = NULL,
-    @_AuthorNamesList NVARCHAR(MAX) -- Comma-separated full names
+    @_AuthorNamesList NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -171,29 +171,24 @@ BEGIN
     DECLARE @EducationEntityExists BIT = 0;
     DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
     
-    -- متغیر مخصوص context_info
     DECLARE @ContextTag VARBINARY(128) = CONVERT(VARBINARY(128), 'RegisterMember');
 
-    -- ست کردن context_info
     SET CONTEXT_INFO @ContextTag;
     PRINT N'DEBUG_RM: CONTEXT_INFO set.';
 
     BEGIN TRY
-        -- بررسی MemberType معتبر
         IF @MemberType NOT IN ('Student', 'Professor', 'Staff')
         BEGIN
             RAISERROR('Error: Invalid MemberType. Must be ''Student'', ''Professor'', or ''Staff''.', 16, 1);
             RETURN;
         END
 
-        -- بررسی عدم وجود NationalCode تکراری
         IF EXISTS (SELECT 1 FROM Library.Members WHERE NationalCode = @NationalCode)
         BEGIN
             RAISERROR('Error: A member with this National Code (%s) already exists.', 16, 1, @NationalCode);
             RETURN;
         END
 
-        -- بررسی ارتباط با اطلاعات آموزشی
         IF @MemberType = 'Student'
         BEGIN
             IF @Education_StudentID IS NULL
@@ -235,7 +230,6 @@ BEGIN
 
         SET @NewMemberID = SCOPE_IDENTITY();
 
-        -- درج در AuditLog
         SET @LogDescription = N'New library member registered. MemberID: ' + CAST(@NewMemberID AS NVARCHAR) +
                               N', NationalCode: ' + @NationalCode +
                               N', Type: ' + @MemberType +
@@ -256,13 +250,11 @@ BEGIN
             VALUES (N'Member Registration Failed', @LogDescription, @EventUser);
         END TRY
         BEGIN CATCH
-            -- خطا در ثبت لاگ نادیده گرفته می‌شود
         END CATCH;
 
         RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
     END CATCH
 
-    -- پاکسازی context_info
     SET CONTEXT_INFO 0x0;
     PRINT N'DEBUG_RM: CONTEXT_INFO cleared.';
 END;

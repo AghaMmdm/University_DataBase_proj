@@ -3,8 +3,7 @@ GO
 
 
 -- ===================================================================== functions =============================================================================
-PRINT '--- Starting Test Script for Education Functions ---';
-GO
+
 
 -- 1. Test Education.CalculateStudentGPA
 PRINT '--- Testing Education.CalculateStudentGPA ---';
@@ -100,22 +99,14 @@ GO
 
 PRINT '--- Starting Test for Education.EnrollStudentInCourse ---' + CHAR(13) + CHAR(10);
 
--- ---------------------------------------------------------------------
--- Test Education.EnrollStudentInCourse
--- ---------------------------------------------------------------------
+
 PRINT '--- Testing Education.EnrollStudentInCourse ---';
 
 DECLARE @EnrollmentID_Test INT;
 
 -- Select an existing StudentID and OfferingID.
--- You might need to adjust these SELECTs based on your actual data.
--- For example, use a specific NationalCode to get StudentID if you know one.
 DECLARE @TestStudentID INT = (SELECT TOP 1 StudentID FROM Education.Students ORDER BY StudentID DESC);
 DECLARE @TestOfferingID INT = (SELECT TOP 1 OfferingID FROM Education.CourseOfferings ORDER BY OfferingID DESC);
-
--- Example: If you want to use a specific student and course offering:
--- DECLARE @TestStudentID INT = (SELECT StudentID FROM Education.Students WHERE NationalCode = N'1234567890');
--- DECLARE @TestOfferingID INT = (SELECT OfferingID FROM Education.CourseOfferings WHERE CourseID = (SELECT CourseID FROM Education.Courses WHERE CourseCode = N'DAT201') AND AcademicYear = 2025 AND Semester = N'Fall');
 
 
 IF @TestStudentID IS NULL
@@ -182,7 +173,6 @@ BEGIN
 
     -- Scenario 5: Attempt to enroll an inactive student (should fail with specific error)
     -- This requires you to have an inactive student in your database or temporarily update one.
-    -- Example (do NOT run this if you don't want to change your data):
     -- UPDATE Education.Students SET Status = 'Withdrawn' WHERE StudentID = @TestStudentID;
     -- Consider testing this manually or with temporary data if modifying existing data is an issue.
     DECLARE @InactiveStudentID INT = (SELECT TOP 1 StudentID FROM Education.Students WHERE Status <> 'Active');
@@ -209,30 +199,10 @@ PRINT CHAR(13) + CHAR(10);
 PRINT '--- Test for Education.EnrollStudentInCourse Completed ---';
 
 
-USE UniversityDB;
-GO
 
-PRINT '--- Starting Test for Education.sp_AddStudent ---' + CHAR(13) + CHAR(10);
 
-USE UniversityDB;
-GO
-
-PRINT '--- Starting Test for Education.sp_AddStudent ---' + CHAR(13) + CHAR(10);
-
--- ---------------------------------------------------------------------
--- Test Education.sp_AddStudent
--- ---------------------------------------------------------------------
-
-USE UniversityDB;
-GO
 
 PRINT '--- Attempting to execute Education.sp_AddStudent once ---' + CHAR(13) + CHAR(10);
-
--- IMPORTANT: This script will INSERT a new student into your database.
--- Please ensure the NationalCode and Email are UNIQUE in your Education.Students table
--- before running, otherwise it will fail with an "already exists" error.
--- Also, ensure 'Computer Engineering' and 'Software Engineering' exist in your
--- Education.Departments and Education.Majors tables, respectively.
 
 DECLARE @TestNationalCode NVARCHAR(10) = N'1000000000'; -- Change this to a NationalCode that DOES NOT exist in your DB
 DECLARE @TestEmail NVARCHAR(100) = N'test.single.run@example.com'; -- Change this to an Email that DOES NOT exist in your DB
@@ -272,8 +242,7 @@ PRINT CHAR(13) + CHAR(10) + '--- Single execution of Education.sp_AddStudent com
 
 PRINT '--- Attempting to execute Education.sp_UpdateStudentGrade once ---' + CHAR(13) + CHAR(10);
 
--- IMPORTANT: This script will UPDATE an existing student's grade and enrollment status.
--- Please ensure you provide valid and existing data for the parameters below.
+
 
 -- Declare variables for the test parameters
 DECLARE @TestStudentID INT;
@@ -282,11 +251,7 @@ DECLARE @TestAcademicYear INT;
 DECLARE @TestSemester NVARCHAR(20);
 DECLARE @TestFinalGrade DECIMAL(5, 2);
 
--- ************************************************************************************
--- ** STEP 1: Replace these placeholder values with actual existing data from your DB **
--- ** You MUST find an existing StudentID, a CourseCode, AcademicYear, and Semester **
--- ** for which an enrollment already exists.                                      **
--- ************************************************************************************
+
 
 -- Example: Find an existing enrollment to use for testing
 -- (You might want to pick specific values you know exist, rather than TOP 1)
@@ -298,7 +263,6 @@ SELECT TOP 1
 FROM Education.Enrollments AS E
 INNER JOIN Education.CourseOfferings AS CO ON E.OfferingID = CO.OfferingID
 INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
--- WHERE E.Status = 'Enrolled' -- Optional: only pick 'Enrolled' students to see status change
 ORDER BY E.EnrollmentID DESC; -- Get the most recent enrollment for example
 
 -- Set the grade you want to update/insert
@@ -310,9 +274,7 @@ PRINT 'Attempting to update grade for StudentID: ' + ISNULL(CAST(@TestStudentID 
       ', Semester: ' + ISNULL(@TestSemester, 'NULL') +
       ' with FinalGrade: ' + ISNULL(CAST(@TestFinalGrade AS NVARCHAR(10)), 'NULL');
 
--- ************************************************************************************
--- ** STEP 2: Execute the stored procedure with the selected/defined parameters    **
--- ************************************************************************************
+
 IF @TestStudentID IS NOT NULL AND @TestCourseCode IS NOT NULL AND @TestAcademicYear IS NOT NULL AND @TestSemester IS NOT NULL
 BEGIN
     BEGIN TRY
@@ -341,8 +303,8 @@ PRINT CHAR(13) + CHAR(10) + '--- Single execution of Education.sp_UpdateStudentG
 
 
 
-USE UniversityDB;
-GO
+
+
 
 PRINT '--- Attempting to execute Education.sp_AddCourseOffering once ---' + CHAR(13) + CHAR(10);
 
@@ -371,8 +333,6 @@ SELECT TOP 1 @TestProfessorID = ProfessorID FROM Education.Professors ORDER BY P
 -- For example, use a dynamic part or a distinct year/semester combo.
 -- For a single test run, just incrementing the year can work.
 SET @TestAcademicYear = (SELECT ISNULL(MAX(AcademicYear), 2025) + 1 FROM Education.CourseOfferings);
--- You might want to make the semester unique if running multiple times within the same year
--- SET @TestSemester = N'Fall_' + CAST(DATEPART(hh, GETDATE()) AS NVARCHAR) + CAST(DATEPART(mi, GETDATE()) AS NVARCHAR);
 
 
 PRINT 'Attempting to add Course Offering for CourseCode: ' + ISNULL(@TestCourseCode, 'NULL') +
@@ -534,15 +494,6 @@ INSERT INTO Education.Grades (EnrollmentID, FinalGrade)
 VALUES (1, 15.5); -- Example: A passing grade (FinalGrade >= 10 leads to 'Completed' in EnrollmentStatus)
 GO
 
--- To test an 'UPDATE' scenario (e.g., if you want to change an existing grade for EnrollmentID 2001):
--- UPDATE Education.Grades
--- SET FinalGrade = 8.0 -- Example: A failing grade (FinalGrade < 10 leads to 'Failed')
--- WHERE EnrollmentID = 2001; -- Use the EnrollmentID of an existing grade
-
--- To test a 'Failed' scenario with a new insert (ensure 2002 is a valid, unused EnrollmentID):
--- INSERT INTO Education.Grades (EnrollmentID, FinalGrade)
--- VALUES (2002, 8.0); -- Example: A failing grade (FinalGrade < 10 leads to 'Failed')
--- GO
 
 -- 2. Check the updated status in Education.Enrollments table.
 -- Include the EnrollmentID(s) you just modified.

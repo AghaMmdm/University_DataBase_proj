@@ -5,7 +5,7 @@ GO
 CREATE PROCEDURE Education.EnrollStudentInCourse
     @_StudentID INT,
     @_OfferingID INT,
-    @NewEnrollmentID INT OUTPUT -- Corrected from OUT to OUTPUT
+    @NewEnrollmentID INT OUTPUT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -24,7 +24,7 @@ BEGIN
 
     BEGIN TRY
         -- Set context to signal trigger that this is an authorized insert
-        SET CONTEXT_INFO 0x504F4351; -- Corrected to use 0x for clearing context info
+        SET CONTEXT_INFO 0x504F4351;
 
         -- 1. Validate Student Existence and Status
         SELECT @StudentStatus = S.Status, @StudentMajorID = S.MajorID
@@ -34,14 +34,14 @@ BEGIN
         IF @StudentStatus IS NULL
         BEGIN
             RAISERROR('Error: Student with ID %d does not exist.', 16, 1, @_StudentID);
-            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            SET CONTEXT_INFO 0x; 
             RETURN;
         END
 
         IF @StudentStatus <> 'Active'
         BEGIN
             RAISERROR('Error: Student with ID %d is not active and cannot enroll in courses. Current status: %s', 16, 1, @_StudentID, @StudentStatus);
-            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            SET CONTEXT_INFO 0x; 
             RETURN;
         END
 
@@ -60,7 +60,7 @@ BEGIN
         IF @CourseID IS NULL
         BEGIN
             RAISERROR('Error: Course Offering with ID %d does not exist.', 16, 1, @_OfferingID);
-            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            SET CONTEXT_INFO 0x;
             RETURN;
         END
 
@@ -73,7 +73,7 @@ BEGIN
         IF @CalculatedCurrentCapacity >= @MaxCapacity
         BEGIN
             RAISERROR('Error: Course Offering with ID %d is full. Current enrollments: %d, Max capacity: %d', 16, 1, @_OfferingID, @CalculatedCurrentCapacity, @MaxCapacity);
-            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            SET CONTEXT_INFO 0x;
             RETURN;
         END
 
@@ -81,7 +81,7 @@ BEGIN
         IF EXISTS (SELECT 1 FROM Education.Enrollments WHERE StudentID = @_StudentID AND OfferingID = @_OfferingID)
         BEGIN
             RAISERROR('Error: Student with ID %d is already enrolled in Course Offering with ID %d.', 16, 1, @_StudentID, @_OfferingID);
-            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            SET CONTEXT_INFO 0x; 
             RETURN;
         END
 
@@ -98,7 +98,7 @@ BEGIN
         )
         BEGIN
             RAISERROR('Error: Student with ID %d has a time conflict with another enrolled course for OfferingID %d.', 16, 1, @_StudentID, @_OfferingID);
-            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            SET CONTEXT_INFO 0x;
             RETURN;
         END
 
@@ -134,7 +134,7 @@ BEGIN
                   AND E.EnrollmentID IS NULL;
 
                 RAISERROR('Error: Student with ID %d has not completed the prerequisite course "%s" (ID: %d).', 16, 1, @_StudentID, @MissingPrereqCourseName, @MissingPrereqCourseID);
-                SET CONTEXT_INFO 0x; -- Corrected to use 0x
+                SET CONTEXT_INFO 0x;
                 RETURN;
             END;
         END;
@@ -146,7 +146,7 @@ BEGIN
         )
         BEGIN
             RAISERROR('Error: Course "%s" (ID: %d) is not part of the curriculum for student''s major (ID: %d).', 16, 1, @CourseName, @CourseID, @StudentMajorID);
-            SET CONTEXT_INFO 0x; -- Corrected to use 0x
+            SET CONTEXT_INFO 0x; 
             RETURN;
         END
 
@@ -167,7 +167,7 @@ BEGIN
 
     END TRY
     BEGIN CATCH
-        SET CONTEXT_INFO 0x; -- Corrected to use 0x in CATCH block too
+        SET CONTEXT_INFO 0x;
 
         DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
         SELECT
@@ -181,7 +181,7 @@ BEGIN
         RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
     END CATCH
 
-    SET CONTEXT_INFO 0x; -- Corrected to use 0x after successful execution
+    SET CONTEXT_INFO 0x; 
 END;
 GO
 
@@ -368,14 +368,6 @@ BEGIN
             THROW 50000, N'Error: Student is not enrolled in the specified course offering.', 1;
         END
 
-        -- Optional: Prevent updating grades for already "Completed" or "Failed" courses
-        -- IF @CurrentEnrollmentStatus IN ('Completed', 'Failed')
-        -- BEGIN
-        --     SET @LogDescription = N'Grade update attempted for already ' + @CurrentEnrollmentStatus + N' course. StudentID: ' + CAST(@StudentID AS NVARCHAR(10)) + N', Course: ' + @CourseCode;
-        --     INSERT INTO Education.LogEvents (EventType, EventDescription) VALUES (N'Grade Update Failed', @LogDescription);
-        --     THROW 50000, N'Error: Grade for this course has already been finalized (' + @CurrentEnrollmentStatus + ').', 1;
-        -- END
-
         -- 4. Determine new enrollment status based on the grade
         IF @FinalGrade >= @PassingGradeThreshold
         BEGIN
@@ -446,7 +438,7 @@ GO
 -- Performs validations for Course and Professor existence.
 CREATE PROCEDURE Education.sp_AddCourseOffering
     @CourseCode NVARCHAR(20),
-    @ProfessorID INT,              -- Changed from ProfessorNationalCode to ProfessorID
+    @ProfessorID INT,
     @AcademicYear INT,
     @Semester NVARCHAR(20),
     @Schedule NVARCHAR(255),
@@ -624,7 +616,7 @@ BEGIN
         -- Check for prerequisites: Ensure all prerequisites for the suggested course are met
         AND NOT EXISTS (
             SELECT 1
-            FROM Education.Prerequisites AS CP -- <<<<<<<<<<<<<<< این خط تغییر یافته است >>>>>>>>>>>>>>>
+            FROM Education.Prerequisites AS CP
             WHERE CP.CourseID = C.CourseID -- The course we are suggesting
               AND CP.PrerequisiteCourseID NOT IN (SELECT CourseID FROM #CompletedCourses) -- Prerequisite is NOT completed
         )

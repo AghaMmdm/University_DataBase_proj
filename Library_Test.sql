@@ -82,10 +82,6 @@ ELSE
 
 
 --======================================================================= Procedures ========================================================================
-
-USE UniversityDB;
-GO
-
 DECLARE @_Title NVARCHAR(500) = N'The Hitchhiker''s Guide to the Galaxy';
 DECLARE @_ISBN NVARCHAR(13) = N'9780345391803';
 DECLARE @_PublicationYear INT = 1979;
@@ -129,8 +125,7 @@ WHERE B.ISBN = @_ISBN;
 
 
 
-USE UniversityDB;
-GO
+
 
 
 DECLARE @StaffNationalCode NVARCHAR(10) = N'1112223330'; 
@@ -158,12 +153,8 @@ GO
 
 
 
-USE UniversityDB;
-GO
 
-PRINT N'---------------------------------------------------';
-PRINT N'Attempting to borrow a book...';
-PRINT N'---------------------------------------------------';
+
 
 -- Declare variables for input parameters
 DECLARE @TargetMemberID INT;
@@ -436,8 +427,6 @@ GO
 
 
 
-USE UniversityDB;
-GO
 
 PRINT N'-------------------------------------------------------------------------------------';
 PRINT N'Demonstrating Library.trg_Library_PreventBorrowIfBookUnavailable Trigger (Corrected Script)';
@@ -451,9 +440,9 @@ DECLARE @BookID_Unavailable INT;
 DECLARE @BookID_Available INT;
 DECLARE @OriginalCopies_Unavailable INT;
 DECLARE @BorrowID_Success INT;
-DECLARE @ErrorMessage NVARCHAR(MAX); -- Declared once at the beginning
-DECLARE @ErrorSeverity INT;          -- Declared once at the beginning
-DECLARE @ErrorState INT;             -- Declared once at the beginning
+DECLARE @ErrorMessage NVARCHAR(MAX); 
+DECLARE @ErrorSeverity INT;          
+DECLARE @ErrorState INT;             
 
 
 -- Find an active member to use for tests
@@ -503,11 +492,9 @@ BEGIN TRY
         @MemberID = @MemberID_Test,
         @BookID = @BookID_Unavailable;
 
-    -- This line should NOT be reached if the trigger works correctly
     PRINT N'WARNING: Borrow operation for unavailable book unexpectedly SUCCEEDED! The trigger might not be working as expected.';
 END TRY
 BEGIN CATCH
-    -- No need to DECLARE here, variables are already declared at the top
     SELECT
         @ErrorMessage = ERROR_MESSAGE(),
         @ErrorSeverity = ERROR_SEVERITY(),
@@ -601,8 +588,3 @@ WHERE BorrowID = @BorrowID_Success;
 
 PRINT N'Check updated AvailableCopies for BookID ' + CAST(@BookID_Available AS NVARCHAR(10)) + ':';
 SELECT BookID, Title, TotalCopies, AvailableCopies FROM Library.Books WHERE BookID = @BookID_Available;
-
-PRINT N'---------------------------------------------------';
-PRINT N'End of Trigger Demonstration.';
-PRINT N'---------------------------------------------------';
-GO

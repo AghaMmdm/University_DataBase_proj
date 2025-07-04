@@ -1,24 +1,15 @@
 ﻿USE UniversityDB;
 GO
 
-IF OBJECT_ID('Education.TR_Education_Students_ValidateNationalCode', 'TR') IS NOT NULL
-BEGIN
-    DROP TRIGGER Education.TR_Education_Students_ValidateNationalCode; -- نام تریگر در اینجا اصلاح شد
-    PRINT 'Dropped existing trigger: Education.TR_Education_Students_ValidateNationalCode.';
-END
-ELSE
-BEGIN
-    PRINT 'Trigger Education.TR_Education_Students_ValidateNationalCode does not exist.';
-END;
-GO
--- Simplified Trigger to validate the National Code (Melli Code)
+
+-- Trigger to validate the National Code (Melli Code)
 CREATE TRIGGER TR_Education_Students_ValidateNationalCode
 ON Education.Students
 AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-    SET XACT_ABORT ON; -- اضافه شده: تضمین می‌کند که خطاها تراکنش را به طور کامل قطع کنند.
+    SET XACT_ABORT ON; 
 
     DECLARE @NationalCode NVARCHAR(10);
     DECLARE @StudentID INT;
@@ -258,8 +249,6 @@ BEGIN
         -- Update the status of the corresponding member in Library.Members
         UPDATE LM
         SET LM.Status = 'Deactivated' -- Setting status to 'Deactivated' as defined in your Library.Members table
-            -- Uncomment the line below if you add a 'DeactivationDate' column to Library.Members
-            -- , LM.DeactivationDate = GETDATE()
         FROM Library.Members AS LM
         INNER JOIN INSERTED AS I ON LM.Education_StudentID = I.StudentID -- *** Using Education_StudentID for direct link ***
         INNER JOIN DELETED AS D ON I.StudentID = D.StudentID

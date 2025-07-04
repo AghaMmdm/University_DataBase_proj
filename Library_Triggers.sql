@@ -13,8 +13,6 @@ BEGIN
     DECLARE @LogDescription NVARCHAR(MAX);
     DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
 
-    -- (Initial AuditLog insert commented out for now, as per previous debugging steps)
-
     DECLARE @StudentID INT, @NationalCode NVARCHAR(10), @FirstName NVARCHAR(50), @LastName NVARCHAR(50), @Email NVARCHAR(100), @PhoneNumber NVARCHAR(20);
 
     DECLARE student_cursor CURSOR LOCAL FOR
@@ -30,13 +28,13 @@ BEGIN
             PRINT N'DEBUG_TR: Calling RegisterMember for StudentID: ' + CAST(@StudentID AS NVARCHAR(10));
             -- *** CORRECTED PARAMETER NAMES HERE (removed leading underscore) ***
             EXEC Library.RegisterMember
-                @NationalCode = @NationalCode, -- Changed from @_NationalCode
-                @FirstName = @FirstName,       -- Changed from @_FirstName
-                @LastName = @LastName,         -- Changed from @_LastName
+                @NationalCode = @NationalCode, 
+                @FirstName = @FirstName,      
+                @LastName = @LastName,         
                 @MemberType = N'Student',
-                @ContactEmail = @Email,        -- Changed from @_ContactEmail
-                @ContactPhone = @PhoneNumber,  -- Changed from @_ContactPhone
-                @Education_StudentID = @StudentID, -- Changed from @_Education_StudentID
+                @ContactEmail = @Email,       
+                @ContactPhone = @PhoneNumber,  
+                @Education_StudentID = @StudentID, 
                 @Education_ProfessorID = NULL;
 
             SET @LogDescription = N'Successfully registered new student as library member. StudentID: ' + CAST(@StudentID AS NVARCHAR(10));
@@ -99,10 +97,10 @@ BEGIN
         -- Log the unauthorized renewal attempt
         INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
         SELECT
-            N'Unauthorized Renewal Attempt', -- This text is hardcoded in your trigger definition (Persian)
+            N'Unauthorized Renewal Attempt',
             N'MemberID ' + CAST(I.MemberID AS NVARCHAR) +
             N' attempted to renew BookID ' + CAST(I.BookID AS NVARCHAR) +
-            N' which is reserved by another member.', -- This text is hardcoded in your trigger definition (Persian)
+            N' which is reserved by another member.', 
             @EventUser
         FROM INSERTED I
         INNER JOIN DELETED D ON I.BorrowID = D.BorrowID
@@ -124,7 +122,7 @@ GO
 
 CREATE TRIGGER Library.trg_Library_PreventBorrowIfBookUnavailable
 ON Library.Borrows
-INSTEAD OF INSERT -- <<< This trigger executes instead of the INSERT operation >>>
+INSTEAD OF INSERT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -185,10 +183,7 @@ BEGIN
     SELECT BorrowDate, DueDate, MemberID, BookID, ActualReturnDate
     FROM INSERTED;
 
-    -- You can add a successful log here, but the BorrowBook procedure itself logs
-    -- SET @LogDescription = N'Borrow operation successful for BookID(s): ' + STUFF((SELECT N', ' + CAST(BookID AS NVARCHAR(10)) FROM INSERTED FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
-    -- INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
-    -- VALUES (N'Book Borrowed (Trigger Approved)', @LogDescription, @EventUser);
+
     PRINT N'DEBUG_TR_PreventBorrow: Borrow operation passed trigger validation and proceeded.';
 
 END;
