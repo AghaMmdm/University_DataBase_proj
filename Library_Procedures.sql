@@ -276,7 +276,7 @@ BEGIN
     DECLARE @AvailableCopies INT;
     DECLARE @BorrowDate DATE = GETDATE();
     DECLARE @DueDate DATE = DATEADD(DAY, @DueDays, @BorrowDate);
-    DECLARE @BorrowID INT;
+    DECLARE @BorrowID INT; -- Declared, but will be NULL if INSERT fails
 
     BEGIN TRY
         BEGIN TRANSACTION;
@@ -310,6 +310,7 @@ BEGIN
         INSERT INTO Library.Borrows (MemberID, BookID, BorrowDate, DueDate, Status)
         VALUES (@MemberID, @BookID, @BorrowDate, @DueDate, 'Borrowed');
 
+        -- Set @BorrowID *after* successful insert
         SET @BorrowID = SCOPE_IDENTITY();
 
         -- 5. Update book availability
@@ -318,16 +319,17 @@ BEGIN
         WHERE BookID = @BookID;
 
         -- 6. Log audit event
+        -- Use ISNULL for @BorrowID to prevent NULL concatenation issues
         SET @LogDescription = N'MemberID ' + CAST(@MemberID AS NVARCHAR(10)) +
                               N' borrowed BookID ' + CAST(@BookID AS NVARCHAR(10)) +
                               N' on ' + CONVERT(NVARCHAR(10), @BorrowDate, 120) +
                               N'. Due on ' + CONVERT(NVARCHAR(10), @DueDate, 120) +
-                              N'. BorrowID: ' + CAST(@BorrowID AS NVARCHAR(10));
+                              N'. BorrowID: ' + ISNULL(CAST(@BorrowID AS NVARCHAR(10)), N'N/A');
         INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
         VALUES (N'Book Borrowed', @LogDescription, @EventUser);
 
         COMMIT TRANSACTION;
-        PRINT N'SUCCESS: Book borrowed successfully. BorrowID: ' + CAST(@BorrowID AS NVARCHAR(10));
+        PRINT N'SUCCESS: Book borrowed successfully. BorrowID: ' + ISNULL(CAST(@BorrowID AS NVARCHAR(10)), N'N/A'); -- Also here for PRINT
 
     END TRY
     BEGIN CATCH
@@ -340,16 +342,115 @@ BEGIN
             @ErrorSeverity = ERROR_SEVERITY(),
             @ErrorState = ERROR_STATE();
 
-        SET @LogDescription = N'Error borrowing book (BookID: ' + CAST(@BookID AS NVARCHAR(10)) +
-                              N', MemberID: ' + CAST(@MemberID AS NVARCHAR(10)) + N'): ' + @ErrorMessage;
+        -- Log audit event for failed borrow
+        -- Make sure this log also doesn't fail due to NULLs
+        DECLARE @ErrorLogDescription NVARCHAR(MAX);
+        SET @ErrorLogDescription = N'Error borrowing book (BookID: ' + ISNULL(CAST(@BookID AS NVARCHAR(10)), 'N/A') +
+                                  N', MemberID: ' + ISNULL(CAST(@MemberID AS NVARCHAR(10)), 'N/A') + N'): ' + ISNULL(@ErrorMessage, 'Unknown Error');
         INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
-        VALUES (N'Book Borrow Failed', @LogDescription, @EventUser);
+        VALUES (N'Book Borrow Failed', @ErrorLogDescription, @EventUser);
 
-        THROW @ErrorSeverity, @ErrorMessage, @ErrorState;
+        -- Calculate the user-defined error number into a variable first
+        DECLARE @UserDefinedErrorNumber INT = 50000 + @ErrorState;
+        IF @UserDefinedErrorNumber < 50000
+            SET @UserDefinedErrorNumber = 50000;
+
+        THROW @UserDefinedErrorNumber, @ErrorMessage, @ErrorState;
     END CATCH;
 END;
 GO
 
+
+
+
+-- Create the ReturnBook procedure
+CREATE PROCEDURE Library.ReturnBook
+    @MemberID INT,
+    @BookID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogDescription NVARCHAR(MAX);
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+    DECLARE @ReturnDate DATE = GETDATE();
+    DECLARE @BorrowID_ToReturn INT;
+    DECLARE @CurrentStatus NVARCHAR(50);
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- Find the active borrow record for the given MemberID and BookID
+        SELECT TOP 1 @BorrowID_ToReturn = BorrowID, @CurrentStatus = Status
+        FROM Library.Borrows
+        WHERE MemberID = @MemberID
+          AND BookID = @BookID
+          AND Status = 'Borrowed' -- Ensure we are returning an active borrow
+        ORDER BY BorrowDate DESC; -- Return the most recent borrow if multiple exist
+
+        IF @BorrowID_ToReturn IS NULL
+        BEGIN
+            RAISERROR('Error: No active borrow record found for MemberID %d and BookID %d.', 16, 1, @MemberID, @BookID);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        -- If found but already returned (should be caught by WHERE Status = 'Borrowed'), defensive check
+        IF @CurrentStatus = 'Returned'
+        BEGIN
+            RAISERROR('Error: Book with BorrowID %d has already been returned by MemberID %d.', 16, 1, @BorrowID_ToReturn, @MemberID);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        -- Update borrow record status and actual return date
+        UPDATE Library.Borrows
+        SET Status = 'Returned', ActualReturnDate = @ReturnDate
+        WHERE BorrowID = @BorrowID_ToReturn;
+
+        -- Increase book availability
+        UPDATE Library.Books
+        SET AvailableCopies = AvailableCopies + 1
+        WHERE BookID = @BookID;
+
+        -- Log audit event
+        SET @LogDescription = N'BookID ' + CAST(@BookID AS NVARCHAR(10)) +
+                              N' (BorrowID: ' + CAST(@BorrowID_ToReturn AS NVARCHAR(10)) +
+                              N') returned by MemberID ' + CAST(@MemberID AS NVARCHAR(10)) +
+                              N' on ' + CONVERT(NVARCHAR(10), @ReturnDate, 120);
+        INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+        VALUES (N'Book Returned', @LogDescription, @EventUser);
+
+        COMMIT TRANSACTION;
+        PRINT N'SUCCESS: Book returned successfully. BorrowID: ' + CAST(@BorrowID_ToReturn AS NVARCHAR(10));
+
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+
+        DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
+        SELECT
+            @ErrorMessage = ERROR_MESSAGE(),
+            @ErrorSeverity = ERROR_SEVERITY(),
+            @ErrorState = ERROR_STATE();
+
+        -- Log audit event for failed return
+        DECLARE @ErrorLogDescription NVARCHAR(MAX);
+        SET @ErrorLogDescription = N'Error returning book for MemberID ' + ISNULL(CAST(@MemberID AS NVARCHAR(10)), 'N/A') +
+                                  N', BookID ' + ISNULL(CAST(@BookID AS NVARCHAR(10)), 'N/A') +
+                                  N': ' + ISNULL(@ErrorMessage, 'Unknown Error');
+        INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+        VALUES (N'Book Return Failed', @ErrorLogDescription, @EventUser);
+
+        -- Calculate the user-defined error number into a variable first
+        DECLARE @UserDefinedErrorNumber INT = 50000 + @ErrorState;
+        IF @UserDefinedErrorNumber < 50000
+            SET @UserDefinedErrorNumber = 50000;
+
+        THROW @UserDefinedErrorNumber, @ErrorMessage, @ErrorState;
+    END CATCH;
+END;
+GO
 
 
 -- Stored Procedure: Library.SuggestBooksForMember
@@ -394,14 +495,14 @@ BEGIN
             RETURN;
         END;
 
-        -- Step 2: Find similar members (at least two common books)
+        -- Step 2: Find similar members (at least one common book)
         SELECT B.MemberID AS SimilarMemberID, COUNT(DISTINCT B.BookID) AS CommonBooksCount
         INTO #SimilarMembers
         FROM Library.Borrows B
         INNER JOIN #CurrentMemberBorrows CMB ON B.BookID = CMB.BookID
         WHERE B.MemberID <> @_MemberID -- Must not be the current member
         GROUP BY B.MemberID
-        HAVING COUNT(DISTINCT B.BookID) >= 2; -- At least two common books
+        HAVING COUNT(DISTINCT B.BookID) >= 1; -- Changed from >= 2 to >= 1
 
         -- If no similar members are found
         IF NOT EXISTS (SELECT 1 FROM #SimilarMembers)
