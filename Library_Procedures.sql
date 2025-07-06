@@ -349,3 +349,113 @@ BEGIN
     END CATCH;
 END;
 GO
+
+
+
+-- Stored Procedure: Library.SuggestBooksForMember
+-- Description: Suggests books to a member based on a collaborative filtering algorithm.
+--              (Finds similar users and suggests books they have borrowed that the current user has not)
+CREATE PROCEDURE Library.SuggestBooksForMember
+    @_MemberID INT,
+    @_TopN INT = 3 -- Maximum number of suggestions to return (Default: 3)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON; -- Ensures that errors cause the transaction to roll back completely
+
+    DECLARE @LogDescription NVARCHAR(MAX);
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+
+    BEGIN TRY
+        -- Validate MemberID
+        IF NOT EXISTS (SELECT 1 FROM Library.Members WHERE MemberID = @_MemberID)
+        BEGIN
+            RAISERROR('Error: Member with ID %d does not exist.', 16, 1, @_MemberID);
+            RETURN;
+        END;
+
+        -- Log the attempt to suggest books in AuditLog
+        SET @LogDescription = N'Attempting to suggest books (Collaborative Filtering) for MemberID: ' + CAST(@_MemberID AS NVARCHAR(10)) + N'.';
+        INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+        VALUES (N'Book Suggestion Attempt (Collaborative)', @LogDescription, @EventUser);
+
+        -- Step 1: Get the list of books currently borrowed by the current member
+        SELECT BookID
+        INTO #CurrentMemberBorrows
+        FROM Library.Borrows
+        WHERE MemberID = @_MemberID;
+
+        -- If the current member has not borrowed any books, we cannot provide collaborative suggestions.
+        IF NOT EXISTS (SELECT 1 FROM #CurrentMemberBorrows)
+        BEGIN
+            PRINT N'No books borrowed by MemberID ' + CAST(@_MemberID AS NVARCHAR(10)) + '. Cannot provide collaborative suggestions.';
+            -- In this implementation, if no history exists, no suggestions are returned.
+            DROP TABLE #CurrentMemberBorrows;
+            RETURN;
+        END;
+
+        -- Step 2: Find similar members (at least two common books)
+        SELECT B.MemberID AS SimilarMemberID, COUNT(DISTINCT B.BookID) AS CommonBooksCount
+        INTO #SimilarMembers
+        FROM Library.Borrows B
+        INNER JOIN #CurrentMemberBorrows CMB ON B.BookID = CMB.BookID
+        WHERE B.MemberID <> @_MemberID -- Must not be the current member
+        GROUP BY B.MemberID
+        HAVING COUNT(DISTINCT B.BookID) >= 2; -- At least two common books
+
+        -- If no similar members are found
+        IF NOT EXISTS (SELECT 1 FROM #SimilarMembers)
+        BEGIN
+            PRINT N'No similar members found for MemberID ' + CAST(@_MemberID AS NVARCHAR(10)) + '. Cannot provide collaborative suggestions.';
+            DROP TABLE #CurrentMemberBorrows;
+            RETURN;
+        END;
+
+        -- Step 3 & 4: Extract suggested books from similar members (that the current member hasn't borrowed)
+        -- and order by borrowing frequency among similar users
+        SELECT TOP (@_TopN)
+            BK.BookID,
+            BK.Title,
+            BK.ISBN,
+            C.CategoryName,
+            BK.AvailableCopies,
+            COUNT(DISTINCT SB.SimilarMemberID) AS BorrowCountBySimilarUsers -- Number of times borrowed by similar users
+        FROM Library.Borrows B_Sim
+        INNER JOIN #SimilarMembers SB ON B_Sim.MemberID = SB.SimilarMemberID
+        INNER JOIN Library.Books BK ON B_Sim.BookID = BK.BookID
+        LEFT JOIN Library.BookCategories C ON BK.CategoryID = C.CategoryID
+        WHERE B_Sim.BookID NOT IN (SELECT BookID FROM #CurrentMemberBorrows) -- Books the current member has not yet borrowed
+          AND BK.AvailableCopies > 0 -- Must have available copies
+        GROUP BY
+            BK.BookID, BK.Title, BK.ISBN, C.CategoryName, BK.AvailableCopies
+        ORDER BY
+            BorrowCountBySimilarUsers DESC, BK.Title; -- Order by borrowing frequency among similar users
+
+        -- Clean up temporary tables
+        DROP TABLE #CurrentMemberBorrows;
+        DROP TABLE #SimilarMembers;
+
+    END TRY
+    BEGIN CATCH
+        -- Log any errors in AuditLog
+        DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
+        SELECT
+            @ErrorMessage = ERROR_MESSAGE(),
+            @ErrorSeverity = ERROR_SEVERITY(),
+            @ErrorState = ERROR_STATE();
+
+        SET @LogDescription = N'Error suggesting books (Collaborative Filtering) for MemberID: ' + CAST(@_MemberID AS NVARCHAR(10)) + N'. Error: ' + @ErrorMessage;
+        INSERT INTO Library.AuditLog (EventType, EventDescription, UserID)
+        VALUES (N'Book Suggestion Error (Collaborative)', @LogDescription, @EventUser);
+
+        -- Re-throw the original error
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+
+        -- Clean up temporary tables in case of error
+        IF OBJECT_ID('tempdb..#CurrentMemberBorrows') IS NOT NULL
+            DROP TABLE #CurrentMemberBorrows;
+        IF OBJECT_ID('tempdb..#SimilarMembers') IS NOT NULL
+            DROP TABLE #SimilarMembers;
+    END CATCH;
+END;
+GO

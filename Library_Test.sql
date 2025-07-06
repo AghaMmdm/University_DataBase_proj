@@ -246,6 +246,238 @@ GO
 
 
 
+
+
+
+
+
+
+
+
+
+PRINT N'-------------------------------------------------------------------------------------';
+PRINT N'Demonstrating Library.SuggestBooksForMember Stored Procedure (Collaborative Filtering)';
+PRINT N'This script will set up test data for collaborative filtering and then call the suggestion procedure.';
+PRINT N'-------------------------------------------------------------------------------------';
+
+-- Declare test variables for Member IDs
+DECLARE @TestMemberID INT;
+DECLARE @SimilarMemberID INT;
+
+-- Declare variables for Book and Category IDs
+DECLARE @CategoryID_ShortStory INT;
+DECLARE @CategoryID_PhilosophyAndStory INT;
+DECLARE @CategoryID_MotivationalNovel INT;
+DECLARE @CategoryID_History INT;
+DECLARE @CategoryID_PersonalGrowth INT;
+
+DECLARE @BookID_Common1 INT;
+DECLARE @BookID_Common2 INT;
+DECLARE @BookID_UniqueToSimilar INT;
+DECLARE @BookID_OtherCategory INT;
+DECLARE @BookID_Unavailable INT;
+
+-- Find an existing MemberID for the demo. If none, display error and exit.
+SELECT TOP 1 @TestMemberID = MemberID FROM Library.Members ORDER BY MemberID ASC;
+IF @TestMemberID IS NULL
+BEGIN
+    PRINT N'Error: No members found. Please ensure you have members in Library.Members table to run this demo.';
+    RETURN;
+END;
+PRINT N'Using TestMemberID: ' + CAST(@TestMemberID AS NVARCHAR(10));
+
+-- Find another member to act as the "similar" member. If only one member exists, create another.
+SELECT TOP 1 @SimilarMemberID = MemberID FROM Library.Members WHERE MemberID <> @TestMemberID ORDER BY MemberID DESC;
+IF @SimilarMemberID IS NULL
+BEGIN
+    PRINT N'Creating a new similar member for demo purposes...';
+    -- Assuming Library.RegisterMember procedure exists
+    DECLARE @NewMemberNationalCode NVARCHAR(10) = '1234567890';
+    DECLARE @NewMemberFirstName NVARCHAR(50) = 'Sara';
+    DECLARE @NewMemberLastName NVARCHAR(50) = 'Mohammadi';
+    DECLARE @NewMemberEmail NVARCHAR(100) = 'sara.mohammadi@example.com';
+    DECLARE @NewMemberPhone NVARCHAR(20) = '09123456789';
+
+    BEGIN TRY
+        EXEC Library.RegisterMember
+            @NationalCode = @NewMemberNationalCode,
+            @FirstName = @NewMemberFirstName,
+            @LastName = @NewMemberLastName,
+            @MemberType = N'General',
+            @Email = @NewMemberEmail,
+            @PhoneNumber = @NewMemberPhone;
+        SELECT @SimilarMemberID = MemberID FROM Library.Members WHERE NationalCode = @NewMemberNationalCode;
+        PRINT N'Created SimilarMemberID: ' + CAST(@SimilarMemberID AS NVARCHAR(10));
+    END TRY
+    BEGIN CATCH
+        PRINT N'Warning: Could not create new member. Ensure Library.RegisterMember exists and NationalCode is unique. Proceeding with existing data or stopping.';
+        IF @SimilarMemberID IS NULL RETURN; -- Cannot proceed without a similar member
+    END CATCH;
+END;
+PRINT N'Using SimilarMemberID: ' + CAST(@SimilarMemberID AS NVARCHAR(10));
+
+-- Clean up any existing borrows for both demo members to ensure a clean test state
+PRINT N'Cleaning up existing borrows for demo members...';
+DELETE FROM Library.Borrows WHERE MemberID IN (@TestMemberID, @SimilarMemberID);
+PRINT N'Existing borrows cleaned.';
+
+
+-- Ensure test categories and books exist, or insert them if not.
+-- This section now robustly checks for existence using UNIQUE constraints before inserting.
+
+-- Category: Short Story
+SELECT @CategoryID_ShortStory = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Short Story';
+IF @CategoryID_ShortStory IS NULL
+BEGIN
+    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Short Story', N'Collection of short stories');
+    SELECT @CategoryID_ShortStory = SCOPE_IDENTITY();
+END;
+
+-- Book: Autumn is the Last Season of the Year (Common Book 1)
+SELECT @BookID_Common1 = BookID FROM Library.Books WHERE ISBN = '9786001760456';
+IF @BookID_Common1 IS NULL
+BEGIN
+    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
+    VALUES (N'Autumn is the Last Season of the Year', '9786001760456', 2013, 3, 3, @CategoryID_ShortStory);
+    SELECT @BookID_Common1 = SCOPE_IDENTITY();
+END;
+-- Always ensure availability for demo purposes
+UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_Common1;
+
+
+-- Category: Philosophy and Story
+SELECT @CategoryID_PhilosophyAndStory = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Philosophy and Story';
+IF @CategoryID_PhilosophyAndStory IS NULL
+BEGIN
+    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Philosophy and Story', N'Books with philosophical content in story format');
+    SELECT @CategoryID_PhilosophyAndStory = SCOPE_IDENTITY();
+END;
+
+-- Book: The Little Prince (Common Book 2)
+SELECT @BookID_Common2 = BookID FROM Library.Books WHERE ISBN = '9789643510000';
+IF @BookID_Common2 IS NULL
+BEGIN
+    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
+    VALUES (N'The Little Prince', '9789643510000', 1943, 3, 3, @CategoryID_PhilosophyAndStory);
+    SELECT @BookID_Common2 = SCOPE_IDENTITY();
+END;
+UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_Common2;
+
+
+-- Category: Motivational Novel
+SELECT @CategoryID_MotivationalNovel = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Motivational Novel';
+IF @CategoryID_MotivationalNovel IS NULL
+BEGIN
+    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Motivational Novel', N'Novels with motivational content');
+    SELECT @CategoryID_MotivationalNovel = SCOPE_IDENTITY();
+END;
+
+-- Book: The Alchemist (Unique to Similar User - expected suggestion)
+SELECT @BookID_UniqueToSimilar = BookID FROM Library.Books WHERE ISBN = '9789643513339';
+IF @BookID_UniqueToSimilar IS NULL
+BEGIN
+    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
+    VALUES (N'The Alchemist', '9789643513339', 1988, 3, 3, @CategoryID_MotivationalNovel);
+    SELECT @BookID_UniqueToSimilar = SCOPE_IDENTITY();
+END;
+UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_UniqueToSimilar;
+
+
+-- Category: History
+SELECT @CategoryID_History = CategoryID FROM Library.BookCategories WHERE CategoryName = N'History';
+IF @CategoryID_History IS NULL
+BEGIN
+    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'History', N'History books');
+    SELECT @CategoryID_History = SCOPE_IDENTITY();
+END;
+
+-- Book: Ancient History of Iran (Other category - not expected suggestion)
+SELECT @BookID_OtherCategory = BookID FROM Library.Books WHERE ISBN = '9789640000001';
+IF @BookID_OtherCategory IS NULL
+BEGIN
+    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
+    VALUES (N'Ancient History of Iran', '9789640000001', 2000, 2, 2, @CategoryID_History);
+    SELECT @BookID_OtherCategory = SCOPE_IDENTITY();
+END;
+UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_OtherCategory;
+
+
+-- Category: Personal Growth
+SELECT @CategoryID_PersonalGrowth = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Personal Growth';
+IF @CategoryID_PersonalGrowth IS NULL
+BEGIN
+    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Personal Growth', N'Books on personal development');
+    SELECT @CategoryID_PersonalGrowth = SCOPE_IDENTITY();
+END;
+
+-- Book: The Compound Effect (Unavailable - not expected suggestion)
+SELECT @BookID_Unavailable = BookID FROM Library.Books WHERE ISBN = '9786000000001';
+IF @BookID_Unavailable IS NULL
+BEGIN
+    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
+    VALUES (N'The Compound Effect', '9786000000001', 2010, 1, 0, @CategoryID_PersonalGrowth);
+    SELECT @BookID_Unavailable = SCOPE_IDENTITY();
+END;
+UPDATE Library.Books SET AvailableCopies = 0 WHERE BookID = @BookID_Unavailable; -- Ensure no copies are available for this specific book
+
+
+PRINT N'Simulating borrowing history for TestMemberID and SimilarMemberID...';
+
+-- Simulate borrowing history to set up collaborative filtering scenario
+BEGIN TRY
+    -- Test Member borrows common books
+    EXEC Library.BorrowBook @MemberID = @TestMemberID, @BookID = @BookID_Common1;
+    EXEC Library.BorrowBook @MemberID = @TestMemberID, @BookID = @BookID_Common2;
+
+    -- Similar Member borrows common books (making them "similar")
+    EXEC Library.BorrowBook @MemberID = @SimilarMemberID, @BookID = @BookID_Common1;
+    EXEC Library.BorrowBook @MemberID = @SimilarMemberID, @BookID = @BookID_Common2;
+
+    -- Similar Member borrows a unique book that Test Member has not (this is the expected suggestion)
+    EXEC Library.BorrowBook @MemberID = @SimilarMemberID, @BookID = @BookID_UniqueToSimilar;
+
+    -- Optionally, simulate the similar member borrowing the unique book again to increase its "frequency"
+    -- This affects the ORDER BY in the suggestion procedure if multiple suggestions are possible
+    EXEC Library.BorrowBook @MemberID = @SimilarMemberID, @BookID = @BookID_UniqueToSimilar;
+
+END TRY
+BEGIN CATCH
+    -- Catch specific errors related to borrowing if any
+    DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSeverity INT, @ErrorState INT;
+    SELECT
+        @ErrorMessage = ERROR_MESSAGE(),
+        @ErrorSeverity = ERROR_SEVERITY(),
+        @ErrorState = ERROR_STATE();
+
+    PRINT N'Warning: Could not simulate borrowing for demo. Error: ' + @ErrorMessage;
+    PRINT N'This might be due to a THROW error in your BorrowBook procedure. Please ensure THROW error numbers are >= 50000 if used.';
+END CATCH;
+
+-- Call the book suggestion procedure
+PRINT N'---------------------------------------------------';
+PRINT N'Calling Library.SuggestBooksForMember for TestMemberID ' + CAST(@TestMemberID AS NVARCHAR(10)) + N':';
+PRINT N'---------------------------------------------------';
+
+-- Execute the suggestion procedure, requesting 3 suggestions
+EXEC Library.SuggestBooksForMember @TestMemberID, 3;
+
+PRINT N'---------------------------------------------------';
+PRINT N'End of Demonstration.';
+PRINT N'---------------------------------------------------';
+
+-- Optional: Clean up test borrows (Uncomment if you want to remove the demo borrow records after execution)
+
+PRINT N'Cleaning up test data (borrow records)...';
+DELETE FROM Library.Borrows WHERE MemberID = @TestMemberID AND BookID IN (@BookID_Common1, @BookID_Common2);
+DELETE FROM Library.Borrows WHERE MemberID = @SimilarMemberID AND BookID IN (@BookID_Common1, @BookID_Common2, @BookID_UniqueToSimilar);
+
+-- Note: Resetting AvailableCopies to original TotalCopies for these books might be needed for full cleanup.
+-- This depends on your system's design for managing book copies after returns.
+PRINT N'Test borrow records cleaned.';
+
+GO
+
+
 --======================================================================= Triggers ========================================================================
 
 
