@@ -483,6 +483,7 @@ from Education.Students
 
 --========================================================================================================================================--
 
+-- TR_Education_Grades_UpdateEnrollmentStatus test
 -- 1. Update a student's status to activate the trigger.
 -- Ensure that StudentID 1000 (or any other valid StudentID) exists in your database.
 -- Also, the new status must be different from the student's current status for the change to be detected.
@@ -534,7 +535,7 @@ from Education.LogEvents;
 
 --========================================================================================================================================--
 
-
+-- trg_PreventDirectEnrollmentOutsideSP test
 -- 1. Attempt a direct INSERT into Education.Enrollments.
 -- This operation is expected to be blocked by the trg_PreventDirectEnrollmentOutsideSP trigger.
 -- You can use any plausible (even non-existent) StudentID and OfferingID here,
@@ -563,7 +564,7 @@ GO
 
 --========================================================================================================================================--
 
-
+-- trg_DeactivateLibraryMemberOnStudentStatusChange test
 select *
 from Education.Students;
 

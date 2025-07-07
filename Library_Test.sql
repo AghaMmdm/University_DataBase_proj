@@ -8,6 +8,7 @@ SELECT * FROM Library.GetTopBorrowedBooks(5);
 
 --=========================================================================================================================================================--
 
+-- GetMemberOverdueBooks test
 -- Declare variables for IDs (assuming these were populated from your previous comprehensive insert script)
 DECLARE @MemberID_Ali INT, @MemberID_Sara INT, @MemberID_Reza INT;
 DECLARE @BookID_1984 INT, @BookID_HP INT, @BookID_Foundation INT;
@@ -79,6 +80,7 @@ ELSE
 
 --=========================================================================================================================================================--
 
+-- SearchBooks test
 select * from Library.books
 
 SELECT *
@@ -86,7 +88,7 @@ FROM Library.SearchBooks(NULL, '9780747532699', NULL, NULL, NULL, NULL);
 
 --======================================================================= Procedures ========================================================================
 
-
+-- AddBook test
 DECLARE @_Title NVARCHAR(500) = N'The Hitchhiker''s Guide to the Galaxy';
 DECLARE @_ISBN NVARCHAR(13) = N'9780345391803';
 DECLARE @_PublicationYear INT = 1979;
@@ -131,7 +133,7 @@ select * from Library.books
 
 --=========================================================================================================================================================--
 
-
+-- RegisterMember test
 DECLARE @StaffNationalCode NVARCHAR(10) = N'1112223330'; 
 DECLARE @StaffFirstName NVARCHAR(100) = N'Ali';
 DECLARE @StaffLastName NVARCHAR(100) = N'Rostami';
@@ -157,7 +159,7 @@ GO
 
 --=========================================================================================================================================================--
 
-
+-- BorrowBook test
 -- Declare variables for input parameters
 DECLARE @TargetMemberID INT;
 DECLARE @TargetBookID INT;
@@ -249,6 +251,7 @@ GO
 
 --=========================================================================================================================================================--
 
+-- SuggestBooksForMember test
 select*
 from library.books
 
@@ -340,7 +343,7 @@ PRINT N'--- Test Execution Complete ---';
 
 --======================================================================= Triggers ========================================================================
 
-
+-- trg_Library_PreventRenewalIfReserved test
 -- Declare variables
 DECLARE @MemberA_ID INT;
 DECLARE @MemberB_ID INT;
@@ -502,6 +505,7 @@ PRINT N'---------------------------------------------------';
 
 --=========================================================================================================================================================--
 
+-- trg_Library_PreventBorrowIfBookUnavailable test
 PRINT N'-------------------------------------------------------------------------------------';
 PRINT N'Demonstrating Library.trg_Library_PreventBorrowIfBookUnavailable Trigger (Corrected Script)';
 PRINT N'This script will demonstrate two scenarios: attempting to borrow an unavailable book (should be prevented)';
