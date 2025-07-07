@@ -171,7 +171,7 @@ GO
 -- Table: Education.Grades
 CREATE TABLE Education.Grades (
     GradeID INT PRIMARY KEY IDENTITY(1,1),
-    EnrollmentID INT NOT NULL UNIQUE, -- Each enrollment has only one final grade
+    EnrollmentID INT NOT NULL,
     FinalGrade DECIMAL(4,2) NOT NULL,
     GradeDate DATE NOT NULL DEFAULT GETDATE(),
     CONSTRAINT FK_Grade_Enrollment FOREIGN KEY (EnrollmentID) REFERENCES Education.Enrollments(EnrollmentID),

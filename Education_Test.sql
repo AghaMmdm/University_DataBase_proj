@@ -54,7 +54,7 @@ GO
 -- 3. Test Education.fn_GetStudentSemesterStatus
 PRINT '--- Testing Education.fn_GetStudentSemesterStatus ---';
 DECLARE @StudentIDForSemesterStatus INT;
-DECLARE @AcademicYear INT = 2024; -- Example Academic Year
+DECLARE @AcademicYear INT = 2025; -- Example Academic Year
 DECLARE @Semester NVARCHAR(20) = 'Fall'; -- Example Semester
 DECLARE @SemesterStatus NVARCHAR(50);
 
@@ -80,7 +80,6 @@ BEGIN
     SET @SemesterStatus = Education.fn_GetStudentSemesterStatus(@StudentIDForOnLeaveTest, @AcademicYear, @Semester);
     PRINT N'Semester Status for StudentID ' + ISNULL(CAST(@StudentIDForOnLeaveTest AS NVARCHAR(10)), 'N/A') +
           N' in ' + CAST(@AcademicYear AS NVARCHAR(4)) + N' ' + @Semester + N' (expecting "On Leave" if active and no enrollments): ' + ISNULL(@SemesterStatus, 'N/A');
-
 END
 ELSE
 BEGIN
@@ -97,7 +96,7 @@ GO
 USE UniversityDB;
 GO
 
-PRINT '--- Starting Test for Education.EnrollStudentInCourse ---' + CHAR(13) + CHAR(10);
+PRINT '--- Starting Test for Education.EnrollStudentInCourse ---';
 
 
 PRINT '--- Testing Education.EnrollStudentInCourse ---';
@@ -129,7 +128,7 @@ BEGIN
             @_StudentID = @TestStudentID,
             @_OfferingID = @TestOfferingID,
             @NewEnrollmentID = @EnrollmentID_Test OUTPUT;
-        PRINT 'Successfully enrolled student. New EnrollmentID: ' + ISNULL(CAST(@EnrollmentID_Test AS NVARCHAR(10)), 'NULL');
+        PRINT 'Successfully enrolled student';
     END TRY
     BEGIN CATCH
         PRINT 'Error enrolling student (Expected for duplicate enrollment, time conflict, capacity full, or missing prerequisites): ' + ERROR_MESSAGE();
@@ -198,11 +197,9 @@ END;
 PRINT CHAR(13) + CHAR(10);
 PRINT '--- Test for Education.EnrollStudentInCourse Completed ---';
 
+--========================================================================================================================================--
 
-
-
-
-PRINT '--- Attempting to execute Education.sp_AddStudent once ---' + CHAR(13) + CHAR(10);
+PRINT '--- Attempting to execute Education.sp_AddStudent once ---';
 
 DECLARE @TestNationalCode NVARCHAR(10) = N'1000000000'; -- Change this to a NationalCode that DOES NOT exist in your DB
 DECLARE @TestEmail NVARCHAR(100) = N'test.single.run@example.com'; -- Change this to an Email that DOES NOT exist in your DB
@@ -235,14 +232,9 @@ END CATCH;
 
 PRINT CHAR(13) + CHAR(10) + '--- Single execution of Education.sp_AddStudent completed ---';
 
+--========================================================================================================================================--
 
-
-
-
-
-PRINT '--- Attempting to execute Education.sp_UpdateStudentGrade once ---' + CHAR(13) + CHAR(10);
-
-
+PRINT '--- Attempting to execute Education.sp_UpdateStudentGrade once ---';
 
 -- Declare variables for the test parameters
 DECLARE @TestStudentID INT;
@@ -250,8 +242,6 @@ DECLARE @TestCourseCode NVARCHAR(20);
 DECLARE @TestAcademicYear INT;
 DECLARE @TestSemester NVARCHAR(20);
 DECLARE @TestFinalGrade DECIMAL(5, 2);
-
-
 
 -- Example: Find an existing enrollment to use for testing
 -- (You might want to pick specific values you know exist, rather than TOP 1)
@@ -266,13 +256,12 @@ INNER JOIN Education.Courses AS C ON CO.CourseID = C.CourseID
 ORDER BY E.EnrollmentID DESC; -- Get the most recent enrollment for example
 
 -- Set the grade you want to update/insert
-SET @TestFinalGrade = 15.50; -- Example grade: change this as needed (e.g., 8.00 for a fail scenario)
+SET @TestFinalGrade = 13.20; -- Example grade: change this as needed (e.g., 8.00 for a fail scenario)
 
 PRINT 'Attempting to update grade for StudentID: ' + ISNULL(CAST(@TestStudentID AS NVARCHAR(10)), 'NULL') +
       ', CourseCode: ' + ISNULL(@TestCourseCode, 'NULL') +
       ', AcademicYear: ' + ISNULL(CAST(@TestAcademicYear AS NVARCHAR(4)), 'NULL') +
-      ', Semester: ' + ISNULL(@TestSemester, 'NULL') +
-      ' with FinalGrade: ' + ISNULL(CAST(@TestFinalGrade AS NVARCHAR(10)), 'NULL');
+      ', Semester: ' + ISNULL(@TestSemester, 'NULL');
 
 
 IF @TestStudentID IS NOT NULL AND @TestCourseCode IS NOT NULL AND @TestAcademicYear IS NOT NULL AND @TestSemester IS NOT NULL
@@ -299,12 +288,12 @@ BEGIN
     PRINT 'Please manually set the @TestStudentID, @TestCourseCode, @TestAcademicYear, and @TestSemester variables.';
 END;
 
+select *
+from Education.grades
+
 PRINT CHAR(13) + CHAR(10) + '--- Single execution of Education.sp_UpdateStudentGrade completed ---';
 
-
-
-
-
+--========================================================================================================================================--
 
 PRINT '--- Attempting to execute Education.sp_AddCourseOffering once ---' + CHAR(13) + CHAR(10);
 
@@ -372,9 +361,8 @@ PRINT CHAR(13) + CHAR(10) + '--- Single execution of Education.sp_AddCourseOffer
 
 select *
 from Education.CourseOfferings;
-
-
-
+select *
+from Education.courses
 
 -- ===================================================================== Triggers =============================================================================
 
@@ -388,7 +376,7 @@ PRINT 'Test Case 1: Inserting a student with a VALID National Code (Expected: SU
 BEGIN TRY
     BEGIN TRANSACTION;
     INSERT INTO Education.Students (NationalCode, FirstName, LastName, DateOfBirth, Email, PhoneNumber, EnrollmentDate, DepartmentID, MajorID, Status, AddressID)
-    VALUES ('1234567890', 'Valid', 'Student1', '2000-01-01', 'valid.student1@example.com', '09123456789', GETDATE(),
+    VALUES ('2345678999', 'Valid', 'Student1', '2000-01-01', 'valid.student1@example.com', '09123456789', GETDATE(),
             (SELECT TOP 1 DepartmentID FROM Education.Departments),
             (SELECT TOP 1 MajorID FROM Education.Majors),
             'Active', NULL);
@@ -455,22 +443,21 @@ BEGIN CATCH
 END CATCH;
 PRINT CHAR(13) + CHAR(10);
 
+select *
+from Education.Students
 
--- Clean up the test student inserted in Test Case 1 if it exists
-PRINT 'Cleaning up test data...';
-DELETE FROM Education.Students WHERE NationalCode = '1234567890';
-PRINT '--- Testing Complete ---';
-
-
-
+--========================================================================================================================================--
 
 -- 1. Update a student's status to activate the trigger.
 -- Ensure that StudentID 1000 (or any other valid StudentID) exists in your database.
 -- Also, the new status must be different from the student's current status for the change to be detected.
 UPDATE Education.Students
 SET Status = 'Suspended' -- Change status to 'Suspended' or any other valid status
-WHERE StudentID = 1025; -- Enter the desired StudentID here
+WHERE StudentID = 1116; -- Enter the desired StudentID here
 GO
+
+select *
+from Education.students
 
 -- 2. Check the contents of the Education.LogEvents table to verify if the trigger logged the event.
 SELECT *

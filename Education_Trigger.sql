@@ -1,6 +1,31 @@
 ﻿USE UniversityDB;
 GO
 
+-- Trigger to log changes to the Status column in the Students table
+CREATE TRIGGER TR_Education_Students_LogStatusChange
+ON Education.Students
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Check if the Status column was updated
+    IF UPDATE(Status)
+    BEGIN
+        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
+        SELECT
+            'StudentStatusChanged',
+            'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
+            ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
+            ' to: ' + ISNULL(I.Status, 'NULL'),
+            SUSER_SNAME() -- Log the user who performed the update
+        FROM
+            INSERTED AS I
+        INNER JOIN
+            DELETED AS D ON I.StudentID = D.StudentID;
+    END
+END;
+GO
 
 -- Trigger to validate the National Code (Melli Code)
 CREATE TRIGGER TR_Education_Students_ValidateNationalCode
@@ -56,71 +81,6 @@ GO
 
 PRINT '--- TR_Education_Students_ValidateNationalCode created successfully. ---';
 GO
-
-
--- Trigger to log changes to the Status column in the Students table
-CREATE TRIGGER Education.trg_DeactivateLibraryMemberOnStudentStatusChange
-ON Education.Students
-AFTER UPDATE
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
-    DECLARE @LogDescription NVARCHAR(MAX);
-
-    -- Check if the Status column was updated
-    IF UPDATE(Status)
-    BEGIN
-        -- Handle students whose status changed to a deactivating status
-        IF EXISTS (SELECT 1 FROM INSERTED i JOIN DELETED d ON i.StudentID = d.StudentID WHERE i.Status <> d.Status AND i.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'))
-        BEGIN
-            -- Deactivate corresponding Library Member
-            UPDATE LM
-            SET Status = 'Inactive'
-            FROM Library.Members AS LM
-            INNER JOIN INSERTED AS I ON LM.NationalCode = (SELECT NationalCode FROM Education.Students WHERE StudentID = I.StudentID) -- Assuming NationalCode is the link
-            INNER JOIN DELETED AS D ON I.StudentID = D.StudentID
-            WHERE I.Status <> D.Status -- Only process if status actually changed
-              AND I.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Only for these specific statuses
-
-            -- Log the status change and library deactivation
-            INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
-            SELECT
-                'Student Status Change - Member Deactivated', -- Shortened string to fit NVARCHAR(50) (44 chars)
-                'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
-                ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
-                ' to: ' + ISNULL(I.Status, 'NULL') +
-                '. Corresponding Library member deactivated.',
-                @EventUser
-            FROM
-                INSERTED AS I
-            INNER JOIN
-                DELETED AS D ON I.StudentID = D.StudentID
-            WHERE
-                I.Status <> D.Status -- Only log if status actually changed
-                AND I.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Only log deactivation if new status implies it
-        END
-
-        -- Handle all other student status changes (if not already handled by deactivation logic)
-        -- This ensures all status changes are logged, not just those leading to deactivation
-        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
-        SELECT
-            'Student Status Changed', -- Shortened string (22 chars)
-            'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
-            ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
-            ' to: ' + ISNULL(I.Status, 'NULL'),
-            @EventUser
-        FROM
-            INSERTED AS I
-        INNER JOIN
-            DELETED AS D ON I.StudentID = D.StudentID
-        WHERE I.Status <> D.Status -- Only log if status actually changed
-              AND I.Status NOT IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Exclude statuses handled by deactivation logic (to avoid duplicate logs)
-    END
-END;
-GO
-
 
 -- Trigger to update Enrollment status based on the final grade
 CREATE TRIGGER TR_Education_Grades_UpdateEnrollmentStatus
@@ -270,6 +230,70 @@ BEGIN
             WHERE I.Status IN ('Expelled', 'Withdrawn')
               AND D.Status NOT IN ('Expelled', 'Withdrawn');
         END
+    END
+END;
+GO
+
+
+-- Trigger to log changes to the Status column in the Students table
+CREATE TRIGGER Education.trg_DeactivateLibraryMemberOnStudentStatusChange
+ON Education.Students
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
+    DECLARE @LogDescription NVARCHAR(MAX);
+
+    -- Check if the Status column was updated
+    IF UPDATE(Status)
+    BEGIN
+        -- Handle students whose status changed to a deactivating status
+        IF EXISTS (SELECT 1 FROM INSERTED i JOIN DELETED d ON i.StudentID = d.StudentID WHERE i.Status <> d.Status AND i.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'))
+        BEGIN
+            -- Deactivate corresponding Library Member
+            UPDATE LM
+            SET Status = 'Inactive'
+            FROM Library.Members AS LM
+            INNER JOIN INSERTED AS I ON LM.NationalCode = (SELECT NationalCode FROM Education.Students WHERE StudentID = I.StudentID) -- Assuming NationalCode is the link
+            INNER JOIN DELETED AS D ON I.StudentID = D.StudentID
+            WHERE I.Status <> D.Status -- Only process if status actually changed
+              AND I.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Only for these specific statuses
+
+            -- Log the status change and library deactivation
+            INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
+            SELECT
+                'Student Status Change - Member Deactivated', -- Shortened string to fit NVARCHAR(50) (44 chars)
+                'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
+                ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
+                ' to: ' + ISNULL(I.Status, 'NULL') +
+                '. Corresponding Library member deactivated.',
+                @EventUser
+            FROM
+                INSERTED AS I
+            INNER JOIN
+                DELETED AS D ON I.StudentID = D.StudentID
+            WHERE
+                I.Status <> D.Status -- Only log if status actually changed
+                AND I.Status IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Only log deactivation if new status implies it
+        END
+
+        -- Handle all other student status changes (if not already handled by deactivation logic)
+        -- This ensures all status changes are logged, not just those leading to deactivation
+        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
+        SELECT
+            'Student Status Changed', -- Shortened string (22 chars)
+            'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
+            ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
+            ' to: ' + ISNULL(I.Status, 'NULL'),
+            @EventUser
+        FROM
+            INSERTED AS I
+        INNER JOIN
+            DELETED AS D ON I.StudentID = D.StudentID
+        WHERE I.Status <> D.Status -- Only log if status actually changed
+              AND I.Status NOT IN ('Graduated', 'Expelled', 'Withdrawn', 'Suspended'); -- Exclude statuses handled by deactivation logic (to avoid duplicate logs)
     END
 END;
 GO

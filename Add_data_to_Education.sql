@@ -116,12 +116,12 @@ GO
 -- 11. Insert data into Education.CourseOfferings
 PRINT 'Inserting data into Education.CourseOfferings...';
 INSERT INTO Education.CourseOfferings (CourseID, ProfessorID, AcademicYear, Semester, Capacity, Location, Schedule) VALUES
--- Fall 1404 Offerings
-((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'CS101'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Ahmadi'), 1404, N'Fall', 30, 'Room 101', 'Mon/Wed 10:00-11:30'),
-((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'MA101'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Karimi'), 1404, N'Fall', 40, 'Room 205', 'Tue/Thu 08:30-10:00'),
-((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'EE201'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Mohammadi'), 1404, N'Fall', 25, 'Lab 302', 'Mon/Wed 13:00-14:30'),
-((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'CS201'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Ahmadi'), 1404, N'Fall', 20, 'Room 102', 'Tue/Thu 10:00-11:30'),
-((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'MA201'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Karimi'), 1404, N'Fall', 35, 'Room 206', 'Mon/Wed 08:30-10:00');
+-- Fall 2025 Offerings
+((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'CS101'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Ahmadi'), 2025, N'Fall', 30, 'Room 101', 'Mon/Wed 10:00-11:30'),
+((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'MA101'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Karimi'), 2025, N'Fall', 40, 'Room 205', 'Tue/Thu 08:30-10:00'),
+((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'EE201'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Mohammadi'), 2025, N'Fall', 25, 'Lab 302', 'Mon/Wed 13:00-14:30'),
+((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'CS201'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Ahmadi'), 2025, N'Fall', 20, 'Room 102', 'Tue/Thu 10:00-11:30'),
+((SELECT CourseID FROM Education.Courses WHERE CourseCode = 'MA201'), (SELECT ProfessorID FROM Education.Professors WHERE LastName = 'Karimi'), 2025, N'Fall', 35, 'Room 206', 'Mon/Wed 08:30-10:00');
 GO
 
 
@@ -153,27 +153,26 @@ SELECT @MohammadStudentID = StudentID FROM Education.Students WHERE NationalCode
 SELECT @FatemehStudentID = StudentID FROM Education.Students WHERE NationalCode = '0987654321'; -- Fatemeh Davoodi
 SELECT @SinaStudentID = StudentID FROM Education.Students WHERE NationalCode = '1122334455';     -- Sina Akbari
 
--- Get Course Offering IDs for Fall 1404
+-- Get Course Offering IDs for Fall 2025
 SELECT @CS101OfferingID = OfferingID FROM Education.CourseOfferings CO
 INNER JOIN Education.Courses C ON CO.CourseID = C.CourseID
-WHERE C.CourseCode = 'CS101' AND CO.AcademicYear = 1404 AND CO.Semester = N'Fall';
+WHERE C.CourseCode = 'CS101' AND CO.AcademicYear = 2025 AND CO.Semester = N'Fall';
 
 SELECT @MA101OfferingID = OfferingID FROM Education.CourseOfferings CO
 INNER JOIN Education.Courses C ON CO.CourseID = C.CourseID
-WHERE C.CourseCode = 'MA101' AND CO.AcademicYear = 1404 AND CO.Semester = N'Fall';
+WHERE C.CourseCode = 'MA101' AND CO.AcademicYear = 2025 AND CO.Semester = N'Fall';
 
 SELECT @CS201OfferingID = OfferingID FROM Education.CourseOfferings CO
 INNER JOIN Education.Courses C ON CO.CourseID = C.CourseID
-WHERE C.CourseCode = 'CS201' AND CO.AcademicYear = 1404 AND CO.Semester = N'Fall';
+WHERE C.CourseCode = 'CS201' AND CO.AcademicYear = 2025 AND CO.Semester = N'Fall';
 
 SELECT @EE201OfferingID = OfferingID FROM Education.CourseOfferings CO
 INNER JOIN Education.Courses C ON CO.CourseID = C.CourseID
-WHERE C.CourseCode = 'EE201' AND CO.AcademicYear = 1404 AND CO.Semester = N'Fall';
+WHERE C.CourseCode = 'EE201' AND CO.AcademicYear = 2025 AND CO.Semester = N'Fall';
 
 SELECT @MA201OfferingID = OfferingID FROM Education.CourseOfferings CO
 INNER JOIN Education.Courses C ON CO.CourseID = C.CourseID
-WHERE C.CourseCode = 'MA201' AND CO.AcademicYear = 1404 AND CO.Semester = N'Fall';
-
+WHERE C.CourseCode = 'MA201' AND CO.AcademicYear = 2025 AND CO.Semester = N'Fall';
 
 -- Scenario 1: Successful Enrollments
 PRINT 'Enrolling Mohammad in CS101...';
@@ -187,7 +186,6 @@ BEGIN CATCH
     PRINT N'Error enrolling Mohammad in CS101: ' + ERROR_MESSAGE();
     SET @EnrollmentID_Mohammad_CS101 = NULL; -- Ensure it's NULL on failure
 END CATCH;
-
 
 PRINT 'Enrolling Mohammad in MA101...';
 BEGIN TRY
@@ -258,6 +256,8 @@ PRINT '--- Updating some enrollments to "Completed" and inserting grades... ---'
 
 -- Mark some enrollments as 'Completed' and insert grades, only if enrollment was successful
 -- Mohammad CS101
+
+SELECT @EnrollmentID_Mohammad_CS101 = EnrollmentID FROM Education.Enrollments E WHERE @CS101OfferingID = E.OfferingID
 IF @EnrollmentID_Mohammad_CS101 IS NOT NULL
 BEGIN
     UPDATE Education.Enrollments SET Status = 'Completed' WHERE EnrollmentID = @EnrollmentID_Mohammad_CS101;
@@ -268,6 +268,7 @@ END ELSE BEGIN
 END;
 
 -- Mohammad MA101
+SELECT @EnrollmentID_Mohammad_MA101 = EnrollmentID FROM Education.Enrollments E WHERE @MA101OfferingID = E.OfferingID
 IF @EnrollmentID_Mohammad_MA101 IS NOT NULL
 BEGIN
     UPDATE Education.Enrollments SET Status = 'Completed' WHERE EnrollmentID = @EnrollmentID_Mohammad_MA101;
@@ -278,6 +279,7 @@ END ELSE BEGIN
 END;
 
 -- Fatemeh MA101
+SELECT @EnrollmentID_Fatemeh_MA101 = EnrollmentID FROM Education.Enrollments E WHERE @MA101OfferingID = E.OfferingID
 IF @EnrollmentID_Fatemeh_MA101 IS NOT NULL
 BEGIN
     UPDATE Education.Enrollments SET Status = 'Completed' WHERE EnrollmentID = @EnrollmentID_Fatemeh_MA101;
@@ -289,6 +291,7 @@ END;
 
 -- Mohammad CS201 (For GPA testing, this enrollment is expected to fail due to prerequisite issues,
 -- so the IF condition will prevent grade insertion if enrollment failed.)
+SELECT @EnrollmentID_Mohammad_CS201 = EnrollmentID FROM Education.Enrollments E WHERE @CS201OfferingID = E.OfferingID
 IF @EnrollmentID_Mohammad_CS201 IS NOT NULL
 BEGIN
     -- Only update to 'Completed' and insert grade if the enrollment actually happened.
