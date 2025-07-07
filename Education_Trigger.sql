@@ -1,32 +1,6 @@
 ﻿USE UniversityDB;
 GO
 
--- Trigger to log changes to the Status column in the Students table
-CREATE TRIGGER TR_Education_Students_LogStatusChange
-ON Education.Students
-AFTER UPDATE
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    -- Check if the Status column was updated
-    IF UPDATE(Status)
-    BEGIN
-        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
-        SELECT
-            'StudentStatusChanged',
-            'Student ID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
-            ', Status changed from: ' + ISNULL(D.Status, 'NULL') +
-            ' to: ' + ISNULL(I.Status, 'NULL'),
-            SUSER_SNAME() -- Log the user who performed the update
-        FROM
-            INSERTED AS I
-        INNER JOIN
-            DELETED AS D ON I.StudentID = D.StudentID;
-    END
-END;
-GO
-
 -- Trigger to validate the National Code (Melli Code)
 CREATE TRIGGER TR_Education_Students_ValidateNationalCode
 ON Education.Students
@@ -178,62 +152,6 @@ BEGIN
     END;
 END;
 GO
-
--- Description: This trigger automatically deactivates a corresponding library member's status
---				in the Library.Members table when a student's status in Education.Students
---				changes to 'Expelled' or 'Withdrawn'.
-CREATE TRIGGER Education.trg_DeactivateLibraryMemberOnStudentStatusChange
-ON Education.Students
-AFTER UPDATE
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    DECLARE @EventUser NVARCHAR(50) = SUSER_SNAME();
-
-    -- Check if the Status column was actually changed in the update
-    IF UPDATE(Status)
-    BEGIN
-        -- Log attempt for auditing (before actual update)
-        INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
-        SELECT
-            N'Student Status Change - Library Deactivation Attempt',
-            N'Attempting to deactivate library member for StudentID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
-            N' due to status change from "' + D.Status + N'" to "' + I.Status + N'".',
-            @EventUser
-        FROM INSERTED AS I
-        INNER JOIN DELETED AS D ON I.StudentID = D.StudentID
-        WHERE I.Status IN ('Expelled', 'Withdrawn')
-          AND D.Status NOT IN ('Expelled', 'Withdrawn'); -- Ensure status was actually changed TO one of these statuses
-
-        -- Update the status of the corresponding member in Library.Members
-        UPDATE LM
-        SET LM.Status = 'Deactivated' -- Setting status to 'Deactivated' as defined in your Library.Members table
-        FROM Library.Members AS LM
-        INNER JOIN INSERTED AS I ON LM.Education_StudentID = I.StudentID -- *** Using Education_StudentID for direct link ***
-        INNER JOIN DELETED AS D ON I.StudentID = D.StudentID
-        WHERE I.Status IN ('Expelled', 'Withdrawn')
-          AND D.Status NOT IN ('Expelled', 'Withdrawn')
-          AND LM.MemberType = 'Student'; -- Only deactivate members who are of type 'Student'
-
-        -- Log successful deactivations (after actual update)
-        IF @@ROWCOUNT > 0
-        BEGIN
-            INSERT INTO Education.LogEvents (EventType, EventDescription, UserID)
-            SELECT
-                N'Library Member Deactivated',
-                N'Library member for StudentID: ' + CAST(I.StudentID AS NVARCHAR(10)) +
-                N' (NationalCode: ' + I.NationalCode + N') deactivated due to student status "' + I.Status + N'".',
-                @EventUser
-            FROM INSERTED AS I
-            INNER JOIN DELETED AS D ON I.StudentID = D.StudentID
-            WHERE I.Status IN ('Expelled', 'Withdrawn')
-              AND D.Status NOT IN ('Expelled', 'Withdrawn');
-        END
-    END
-END;
-GO
-
 
 -- Trigger to log changes to the Status column in the Students table
 CREATE TRIGGER Education.trg_DeactivateLibraryMemberOnStudentStatusChange

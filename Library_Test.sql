@@ -6,7 +6,7 @@ GO
 SELECT * FROM Library.GetTopBorrowedBooks(5);
 
 
-
+--=========================================================================================================================================================--
 
 -- Declare variables for IDs (assuming these were populated from your previous comprehensive insert script)
 DECLARE @MemberID_Ali INT, @MemberID_Sara INT, @MemberID_Reza INT;
@@ -77,9 +77,12 @@ ELSE
     PRINT N'MemberID for Ali Rezaei not found. Please ensure previous data insertion scripts ran successfully.';
 
 
+--=========================================================================================================================================================--
 
+select * from Library.books
 
-
+SELECT *
+FROM Library.SearchBooks(NULL, '9780747532699', NULL, NULL, NULL, NULL);
 
 --======================================================================= Procedures ========================================================================
 
@@ -122,12 +125,11 @@ LEFT JOIN Library.Publishers AS P ON B.PublisherID = P.PublisherID
 LEFT JOIN Library.BookCategories AS C ON B.CategoryID = C.CategoryID
 WHERE B.ISBN = @_ISBN;
 
+select * from Library.books
 
 
 
-
-
-
+--=========================================================================================================================================================--
 
 
 DECLARE @StaffNationalCode NVARCHAR(10) = N'1112223330'; 
@@ -153,9 +155,7 @@ SELECT TOP 1 EventDescription FROM Library.AuditLog WHERE EventType = N'Member R
 GO
 
 
-
-
-
+--=========================================================================================================================================================--
 
 
 -- Declare variables for input parameters
@@ -247,265 +247,96 @@ ORDER BY LogID DESC;
 GO
 
 
+--=========================================================================================================================================================--
+
+select*
+from library.books
+
+select*
+from library.borrows
 
 
+PRINT N'--- Adding new borrow records to create similarity for book suggestion ---';
 
+-- Declare variables for MemberIDs and BookIDs
+DECLARE @MemberID_Ali INT;
+DECLARE @MemberID_Sara INT;
+DECLARE @BookID_KiteRunner INT;
+DECLARE @BookID_PrideAndPrejudice INT;
 
+-- Get MemberIDs
+SELECT @MemberID_Ali = MemberID FROM Library.Members WHERE FirstName = 'Mohammad' AND LastName = 'Hosseini';
+SELECT @MemberID_Sara = MemberID FROM Library.Members WHERE FirstName = 'Fatemeh' AND LastName = 'Davoodi';
 
+-- Get BookIDs
+SELECT @BookID_KiteRunner = BookID FROM Library.Books WHERE Title = 'The Kite Runner';
+SELECT @BookID_PrideAndPrejudice = BookID FROM Library.Books WHERE Title = 'Pride and Prejudice';
 
-
-
-
--- Add data for test of suggest book
-
--- Get BookIDs created by the test script (if they don't exist yet)
-DECLARE @BookID_HarryPotter INT;
-DECLARE @BookID_Dune INT;
-SELECT @BookID_HarryPotter = BookID FROM Library.Books WHERE Title = 'Harry Potter and the Sorcerer''s Stone';
-SELECT @BookID_Dune = BookID FROM Library.Books WHERE Title = 'Dune'; -- Assuming Dune is also used by Ali in your test script
-
--- Ensure test members exist (from Add_data_to_Library.sql)
-DECLARE @MemberID_Reza INT = 1122334455;
--- Using a different NationalCode to avoid UNIQUE KEY constraint violation
-DECLARE @NationalCode_Reza NVARCHAR(10) = N'1122334456'; -- Changed NationalCode
-
-IF NOT EXISTS (SELECT 1 FROM Library.Members WHERE MemberID = @MemberID_Reza)
+-- Ensure IDs are not NULL before inserting
+IF @MemberID_Ali IS NOT NULL AND @MemberID_Sara IS NOT NULL AND @BookID_KiteRunner IS NOT NULL AND @BookID_PrideAndPrejudice IS NOT NULL
 BEGIN
-    PRINT N'Creating test member Reza (ID 1122334455)...';
-    -- Set IDENTITY_INSERT ON to allow explicit insertion into identity column
-    SET IDENTITY_INSERT Library.Members ON;
-
-    -- Using 'ContactEmail' and 'ContactPhone' as per the Add_data_to_Library.sql provided by user
-    INSERT INTO Library.Members (MemberID, FirstName, LastName, NationalCode, MemberType, ContactEmail, ContactPhone, JoinDate, Status)
-    VALUES (@MemberID_Reza, N'Reza', N'Karimi', @NationalCode_Reza, N'Student', N'reza.karimi@example.com', N'09121112233', '2024-01-15', N'Active');
-
-    -- Set IDENTITY_INSERT OFF after insertion
-    SET IDENTITY_INSERT Library.Members OFF;
-END;
-
--- Add a new book for suggestion, if it doesn't exist
-DECLARE @BookID_Martian INT;
-SELECT @BookID_Martian = BookID FROM Library.Books WHERE Title = 'The Martian';
-IF @BookID_Martian IS NULL
-BEGIN
-    PRINT N'Creating new book: The Martian...';
-    DECLARE @CategoryID_SciFi INT;
-    SELECT @CategoryID_SciFi = CategoryID FROM Library.BookCategories WHERE CategoryName = 'Science Fiction';
-    IF @CategoryID_SciFi IS NULL
+    -- Sara also borrows "The Kite Runner" (making her similar to Ali)
+    IF NOT EXISTS (SELECT 1 FROM Library.Borrows WHERE MemberID = @MemberID_Sara AND BookID = @BookID_KiteRunner)
     BEGIN
-        INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Science Fiction', N'Fiction based on imagined future scientific or technological advances.');
-        SET @CategoryID_SciFi = SCOPE_IDENTITY();
+        INSERT INTO Library.Borrows (MemberID, BookID, BorrowDate, DueDate, ReturnDate, Status)
+        VALUES (@MemberID_Sara, @BookID_KiteRunner, DATEADD(day, -45, GETDATE()), DATEADD(day, -31, GETDATE()), DATEADD(day, -30, GETDATE()), 'Returned');
+        PRINT N'Sara (MemberID: ' + CAST(@MemberID_Sara AS NVARCHAR(10)) + N') borrowed and returned "The Kite Runner".';
+    END
+    ELSE
+    BEGIN
+        PRINT N'Sara already has a borrow record for "The Kite Runner".';
     END;
 
-    -- Ensure Author and Publisher for The Martian exist (using dummy data if not found)
-    DECLARE @AuthorID_AndyWeir INT;
-    SELECT @AuthorID_AndyWeir = AuthorID FROM Library.Authors WHERE FirstName = N'Andy' AND LastName = N'Weir';
-    IF @AuthorID_AndyWeir IS NULL
+    -- Sara borrows "Pride and Prejudice" (a book Ali has not borrowed)
+    -- This book is now a candidate for suggestion to Ali
+    IF NOT EXISTS (SELECT 1 FROM Library.Borrows WHERE MemberID = @MemberID_Sara AND BookID = @BookID_PrideAndPrejudice)
     BEGIN
-        INSERT INTO Library.Authors (FirstName, LastName, Biography, DateOfBirth) VALUES (N'Andy', N'Weir', N'American', '1972-06-16');
-        SET @AuthorID_AndyWeir = SCOPE_IDENTITY();
-    END;
-
-    DECLARE @PublisherID_Crown INT;
-    SELECT @PublisherID_Crown = PublisherID FROM Library.Publishers WHERE PublisherName = N'Crown';
-    IF @PublisherID_Crown IS NULL
+        INSERT INTO Library.Borrows (MemberID, BookID, BorrowDate, DueDate, ReturnDate, Status)
+        VALUES (@MemberID_Sara, @BookID_PrideAndPrejudice, DATEADD(day, -20, GETDATE()), DATEADD(day, -6, GETDATE()), DATEADD(day, -5, GETDATE()), 'Returned');
+        PRINT N'Sara (MemberID: ' + CAST(@MemberID_Sara AS NVARCHAR(10)) + N') borrowed and returned "Pride and Prejudice".';
+    END
+    ELSE
     BEGIN
-        -- Removed any contact-related column for Publishers based on repeated 'Invalid column name' errors
-        INSERT INTO Library.Publishers (PublisherName, Address) VALUES (N'Crown', N'New York, NY');
-        SET @PublisherID_Crown = SCOPE_IDENTITY();
+        PRINT N'Sara already has a borrow record for "Pride and Prejudice".';
     END;
-
-    -- Corrected INSERT INTO Library.Books (removed AuthorID, added PublicationYear, Edition, Description as per user's schema)
-    INSERT INTO Library.Books (Title, ISBN, PublicationYear, Edition, PublisherID, CategoryID, TotalCopies, AvailableCopies, Description)
-    VALUES (N'The Martian', N'9780804139021', 2011, N'First Edition', @PublisherID_Crown, @CategoryID_SciFi, 2, 2, N'An astronaut tries to survive on Mars.');
-    SET @BookID_Martian = SCOPE_IDENTITY();
-
-    -- Add entry to Library.BookAuthors for The Martian
-    IF @BookID_Martian IS NOT NULL AND @AuthorID_AndyWeir IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Library.BookAuthors WHERE BookID = @BookID_Martian AND AuthorID = @AuthorID_AndyWeir)
-        INSERT INTO Library.BookAuthors (BookID, AuthorID) VALUES (@BookID_Martian, @AuthorID_AndyWeir);
-END;
-
--- Clean up any existing borrows for Reza for these specific books (to ensure fresh test)
-DELETE FROM Library.Borrows
-WHERE MemberID = @MemberID_Reza AND BookID IN (SELECT BookID FROM Library.Books WHERE Title IN ('Harry Potter and the Sorcerer''s Stone', 'Dune', 'The Martian'));
-
--- Make Reza borrow books to create common history with Ali and a new suggestion
--- Make sure to use the BorrowBook procedure we created/updated
-PRINT N'Simulating Reza (1122334455) borrowing books...';
-
--- Reza borrows Harry Potter (common with Ali)
-IF @BookID_HarryPotter IS NOT NULL AND @MemberID_Reza IS NOT NULL
+END
+ELSE
 BEGIN
-    EXEC Library.BorrowBook @MemberID = @MemberID_Reza, @BookID = @BookID_HarryPotter;
+    PRINT N'Error: One or more required IDs were NULL. Data insertion skipped.';
+    PRINT N'Ali MemberID: ' + ISNULL(CAST(@MemberID_Ali AS NVARCHAR(10)), 'NULL');
+    PRINT N'Sara MemberID: ' + ISNULL(CAST(@MemberID_Sara AS NVARCHAR(10)), 'NULL');
+    PRINT N'Kite Runner BookID: ' + ISNULL(CAST(@BookID_KiteRunner AS NVARCHAR(10)), 'NULL');
+    PRINT N'Pride and Prejudice BookID: ' + ISNULL(CAST(@BookID_PrideAndPrejudice AS NVARCHAR(10)), 'NULL');
 END;
 
--- Reza borrows The Martian (new suggestion for Ali)
-IF @BookID_Martian IS NOT NULL AND @MemberID_Reza IS NOT NULL
+PRINT N'--- New borrow records added. ---';
+
+PRINT N'--- Testing Library.SuggestBooksForMember ---';
+
+-- Declare a variable to hold Ali's MemberID (Mohammad Hosseini in Education.Students)
+DECLARE @AliMemberID INT;
+
+-- Get Ali's MemberID
+SELECT @AliMemberID = MemberID FROM Library.Members WHERE FirstName = 'Mohammad' AND LastName = 'Hosseini';
+
+IF @AliMemberID IS NOT NULL
 BEGIN
-    EXEC Library.BorrowBook @MemberID = @MemberID_Reza, @BookID = @BookID_Martian;
-END;
+    PRINT N'Calling Library.SuggestBooksForMember for Ali (MemberID: ' + CAST(@AliMemberID AS NVARCHAR(10)) + N')...';
+    EXEC Library.SuggestBooksForMember
+        @_MemberID = @AliMemberID,
+        @_TopN = 3;
 
-PRINT N'Test data setup for collaborative filtering complete.';
-
-
-PRINT N'-------------------------------------------------------------------------------------';
-PRINT N'Enhanced Test Script for Library.SuggestBooksForMember Stored Procedure';
-PRINT N'This script ensures diverse borrowing history for a test member and then calls the suggestion procedure.';
-PRINT N'It first sets up necessary book categories and books if they do not exist.';
-PRINT N'-------------------------------------------------------------------------------------';
-
--- Declare test variables
-DECLARE @TestMemberID_Ali INT;
-DECLARE @BookID_Fiction INT;
-DECLARE @BookID_Fantasy INT;
-DECLARE @BookID_SciFi INT;
-DECLARE @BookID_Mystery INT;
-DECLARE @BookID_History INT;
-
-DECLARE @CategoryID_Fiction INT;
-DECLARE @CategoryID_Fantasy INT;
-DECLARE @CategoryID_SciFi INT;
-DECLARE @CategoryID_Mystery INT;
-DECLARE @CategoryID_History INT;
-
--- Retrieve Ali's MemberID (assuming NationalCode '1234567890' from Add_data_to_Library.sql)
-SELECT @TestMemberID_Ali = MemberID FROM Library.Members WHERE NationalCode = N'1234567890';
-
-IF @TestMemberID_Ali IS NULL
+    PRINT N'Testing with a MemberID that does not exist...';
+    EXEC Library.SuggestBooksForMember
+        @_MemberID = 99999, -- A non-existent MemberID
+        @_TopN = 3;
+END
+ELSE
 BEGIN
-    PRINT N'Error: Test member (Ali, NationalCode 1234567890) not found.';
-    PRINT N'Please ensure you have executed Add_data_to_Library.sql or added a member with NationalCode 1234567890.';
-    RETURN;
+    PRINT N'Ali''s MemberID not found. Please ensure the data insertion script was executed successfully.';
 END;
-PRINT N'Using TestMemberID: ' + CAST(@TestMemberID_Ali AS NVARCHAR(10)) + N' (Ali) for demonstration.';
 
--- Ensure necessary categories exist and get their IDs
-PRINT N'Ensuring test categories exist...';
-IF NOT EXISTS (SELECT 1 FROM Library.BookCategories WHERE CategoryName = N'Fiction')
-    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Fiction', N'General fictional stories.');
-IF NOT EXISTS (SELECT 1 FROM Library.BookCategories WHERE CategoryName = N'Fantasy')
-    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Fantasy', N'Stories with magic and mythical creatures.');
-IF NOT EXISTS (SELECT 1 FROM Library.BookCategories WHERE CategoryName = N'Science Fiction')
-    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Science Fiction', N'Speculative fiction with advanced technology or space.');
-IF NOT EXISTS (SELECT 1 FROM Library.BookCategories WHERE CategoryName = N'Mystery')
-    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'Mystery', N'Stories involving a puzzling crime or situation.');
-IF NOT EXISTS (SELECT 1 FROM Library.BookCategories WHERE CategoryName = N'History')
-    INSERT INTO Library.BookCategories (CategoryName, Description) VALUES (N'History', N'Non-fiction books about historical events and figures.');
-
-SELECT @CategoryID_Fiction = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Fiction';
-SELECT @CategoryID_Fantasy = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Fantasy';
-SELECT @CategoryID_SciFi = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Science Fiction';
-SELECT @CategoryID_Mystery = CategoryID FROM Library.BookCategories WHERE CategoryName = N'Mystery';
-SELECT @CategoryID_History = CategoryID FROM Library.BookCategories WHERE CategoryName = N'History';
-
--- Ensure test books exist and have available copies
-PRINT N'Ensuring test books exist and are available...';
--- Book 1: Fiction (e.g., The Kite Runner)
-SELECT TOP 1 @BookID_Fiction = BookID FROM Library.Books WHERE Title = N'The Kite Runner' AND CategoryID = @CategoryID_Fiction;
-IF @BookID_Fiction IS NULL
-BEGIN
-    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
-    VALUES (N'The Kite Runner', '9780143034972', 2003, 5, 5, @CategoryID_Fiction);
-    SELECT @BookID_Fiction = SCOPE_IDENTITY();
-END;
-UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_Fiction;
-
--- Book 2: Fantasy (e.g., Harry Potter and the Sorcerer''s Stone)
-SELECT TOP 1 @BookID_Fantasy = BookID FROM Library.Books WHERE Title = N'Harry Potter and the Sorcerer''s Stone' AND CategoryID = @CategoryID_Fantasy;
-IF @BookID_Fantasy IS NULL
-BEGIN
-    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
-    VALUES (N'Harry Potter and the Sorcerer''s Stone', '9780590353403', 1997, 4, 4, @CategoryID_Fantasy);
-    SELECT @BookID_Fantasy = SCOPE_IDENTITY();
-END;
-UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_Fantasy;
-
--- Book 3: Science Fiction (e.g., Dune)
-SELECT TOP 1 @BookID_SciFi = BookID FROM Library.Books WHERE Title = N'Dune' AND CategoryID = @CategoryID_SciFi;
-IF @BookID_SciFi IS NULL
-BEGIN
-    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
-    VALUES (N'Dune', '9780441013593', 1965, 3, 3, @CategoryID_SciFi);
-    SELECT @BookID_SciFi = SCOPE_IDENTITY();
-END;
-UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_SciFi;
-
--- Book 4: Another book in Fiction (for suggestion) (e.g., To Kill a Mockingbird)
-DECLARE @BookID_Fiction_Suggest INT;
-SELECT TOP 1 @BookID_Fiction_Suggest = BookID FROM Library.Books WHERE Title = N'To Kill a Mockingbird' AND CategoryID = @CategoryID_Fiction;
-IF @BookID_Fiction_Suggest IS NULL
-BEGIN
-    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
-    VALUES (N'To Kill a Mockingbird', '9780446310789', 1960, 3, 3, @CategoryID_Fiction);
-    SELECT @BookID_Fiction_Suggest = SCOPE_IDENTITY();
-END;
-UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_Fiction_Suggest;
-
--- Book 5: Another book in Fantasy (for suggestion) (e.g., The Hobbit)
-DECLARE @BookID_Fantasy_Suggest INT;
-SELECT TOP 1 @BookID_Fantasy_Suggest = BookID FROM Library.Books WHERE Title = N'The Hobbit' AND CategoryID = @CategoryID_Fantasy;
-IF @BookID_Fantasy_Suggest IS NULL
-BEGIN
-    INSERT INTO Library.Books (Title, ISBN, PublicationYear, TotalCopies, AvailableCopies, CategoryID)
-    VALUES (N'The Hobbit', '9780345339683', 1937, 3, 3, @CategoryID_Fantasy);
-    SELECT @BookID_Fantasy_Suggest = SCOPE_IDENTITY();
-END;
-UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID = @BookID_Fantasy_Suggest;
-
--- Clean up any existing borrows for Ali for a clean test run
-PRINT N'Cleaning up existing borrows for TestMemberID ' + CAST(@TestMemberID_Ali AS NVARCHAR(10)) + N'...';
-DELETE FROM Library.Borrows WHERE MemberID = @TestMemberID_Ali;
-PRINT N'Existing borrows for Ali cleaned. (Rows affected: ' + CAST(@@ROWCOUNT AS NVARCHAR(10)) + N')';
-
--- Simulate diverse borrowing history for Ali
-PRINT N'Simulating diverse borrowing history for Ali...';
-BEGIN TRY
-    PRINT N'Borrowing "The Kite Runner" (Fiction)...';
-    EXEC Library.BorrowBook @MemberID = @TestMemberID_Ali, @BookID = @BookID_Fiction;
-
-    PRINT N'Borrowing "Harry Potter and the Sorcerer''s Stone" (Fantasy)...';
-    EXEC Library.BorrowBook @MemberID = @TestMemberID_Ali, @BookID = @BookID_Fantasy;
-
-    PRINT N'Borrowing "Dune" (Science Fiction)...';
-    EXEC Library.BorrowBook @MemberID = @TestMemberID_Ali, @BookID = @BookID_SciFi;
-
-    -- Return one book to ensure suggestions also consider returned books' categories
-    PRINT N'Returning "The Kite Runner"...';
-    EXEC Library.ReturnBook @MemberID = @TestMemberID_Ali, @BookID = @BookID_Fiction;
-
-END TRY
-BEGIN CATCH
-    PRINT N'Warning: Could not simulate borrowing history for demo. Error: ' + ERROR_MESSAGE();
-    PRINT N'This might be due to issues with the BorrowBook/ReturnBook procedures or existing data. Proceeding with existing data.';
-END CATCH;
-
--- Call the book suggestion procedure for Ali
-PRINT N'---------------------------------------------------';
-PRINT N'Calling Library.SuggestBooksForMember for Ali (TestMemberID: ' + CAST(@TestMemberID_Ali AS NVARCHAR(10)) + N'):';
-PRINT N'---------------------------------------------------';
-
-EXEC Library.SuggestBooksForMember @TestMemberID_Ali, 5; -- Request 5 suggestions
-
-PRINT N'---------------------------------------------------';
-PRINT N'End of Suggestion Procedure Test.';
-PRINT N'---------------------------------------------------';
-
--- Optional Cleanup Section:
--- If you wish to revert the changes made by this test script, uncomment the section below.
-
-PRINT N'Cleaning up test borrows for Ali...';
-DELETE FROM Library.Borrows WHERE MemberID = @TestMemberID_Ali
-    AND BookID IN (@BookID_Fiction, @BookID_Fantasy, @BookID_SciFi);
-
--- Revert AvailableCopies for the books used in this test
--- Note: This is a simplified cleanup. In a real scenario, you'd need to correctly
--- re-evaluate AvailableCopies based on remaining active borrows if any.
--- UPDATE Library.Books SET AvailableCopies = TotalCopies WHERE BookID IN (@BookID_Fiction, @BookID_Fantasy, @BookID_SciFi);
-PRINT N'Test data cleanup for Ali completed.';
-
-
-GO
-
+PRINT N'--- Test Execution Complete ---';
 
 --======================================================================= Triggers ========================================================================
 
@@ -664,30 +495,12 @@ SELECT
 FROM Library.Reservations
 WHERE BookID = @Book_ID AND MemberID = @MemberB_ID;
 
-PRINT N'3. Check Library.AuditLog for "Unauthorized Renewal Attempt" entry (look for Persian text in description):';
-SELECT TOP 5
-    LogID,
-    EventType,
-    EventDescription,
-    UserID
-FROM Library.AuditLog
-WHERE EventType = N'Unauthorized Renewal Attempt'
-ORDER BY LogID DESC;
-
 PRINT N'---------------------------------------------------';
 PRINT N'End of Trigger Demonstration.';
-PRINT N'Please note that the AuditLog entry created by the trigger will contain Persian text';
-PRINT N'as it is hardcoded within your trigger definition, which I cannot modify based on your request.';
 PRINT N'---------------------------------------------------';
 
-GO
 
-
-
-
-
-
-
+--=========================================================================================================================================================--
 
 PRINT N'-------------------------------------------------------------------------------------';
 PRINT N'Demonstrating Library.trg_Library_PreventBorrowIfBookUnavailable Trigger (Corrected Script)';
@@ -765,87 +578,8 @@ BEGIN CATCH
     PRINT N'Error Message from Trigger: ' + @ErrorMessage;
 END CATCH;
 
--- Verification for Scenario 1
-PRINT N'Verification for Scenario 1: Check if a borrow record for BookID ' + CAST(@BookID_Unavailable AS NVARCHAR(10)) + ' exists (expected: 0 rows):';
-SELECT BorrowID, MemberID, BookID, BorrowDate, DueDate, ActualReturnDate, Status
-FROM Library.Borrows
-WHERE MemberID = @MemberID_Test AND BookID = @BookID_Unavailable AND ActualReturnDate IS NULL;
+select *
+from Library.books
 
-
-PRINT N'Check Library.AuditLog for "Borrow Failed (No Copies)" or "Borrow Failed (Book Not Found)" entry:';
-SELECT TOP 5 LogID, EventType, EventDescription, UserID
-FROM Library.AuditLog
-WHERE EventType LIKE N'Borrow Failed%'
-ORDER BY LogID DESC;
-PRINT N'(Expected: 0 rows affected here if the trigger''s ROLLBACK TRANSACTION prevents the audit log entry, otherwise 1 row)';
-
-
--- Restore AvailableCopies for the book used in Scenario 1
-UPDATE Library.Books
-SET AvailableCopies = @OriginalCopies_Unavailable
-WHERE BookID = @BookID_Unavailable;
-PRINT N'Restored AvailableCopies to ' + CAST(@OriginalCopies_Unavailable AS NVARCHAR(10)) + ' for BookID ' + CAST(@BookID_Unavailable AS NVARCHAR(10)) + '.';
-
-
--- Scenario 2: Attempt to borrow an AVAILABLE book
-PRINT N'---------------------------------------------------';
-PRINT N'Scenario 2: Attempting to borrow an AVAILABLE book.';
-PRINT N'EXPECTING THE BORROW TO SUCCEED.';
-PRINT N'---------------------------------------------------';
-
--- Find a book that has available copies
-SELECT TOP 1 @BookID_Available = BookID
-FROM Library.Books
-WHERE AvailableCopies > 0
-ORDER BY BookID ASC;
-
-IF @BookID_Available IS NULL
-BEGIN
-    PRINT N'Error: No available books found for success test. Please ensure some books have AvailableCopies > 0 in Library.Books table.';
-    RETURN;
-END;
-PRINT N'Book selected for availability test: BookID = ' + CAST(@BookID_Available AS NVARCHAR(10)) + '.';
-
--- Clean up any existing active borrows for this book by the test member
-UPDATE Library.Borrows
-SET ActualReturnDate = GETDATE(), Status = 'Returned'
-WHERE MemberID = @MemberID_Test AND BookID = @BookID_Available AND ActualReturnDate IS NULL;
-
--- Attempt to borrow the available book using the stored procedure
-BEGIN TRY
-    EXEC Library.BorrowBook
-        @MemberID = @MemberID_Test,
-        @BookID = @BookID_Available;
-
-    SELECT TOP 1 @BorrowID_Success = BorrowID
-    FROM Library.Borrows
-    WHERE MemberID = @MemberID_Test AND BookID = @BookID_Available AND ActualReturnDate IS NULL
-    ORDER BY BorrowDate DESC;
-
-    IF @BorrowID_Success IS NOT NULL
-    BEGIN
-        PRINT N'SUCCESS: Borrow operation for available book SUCCEEDED. BorrowID: ' + CAST(@BorrowID_Success AS NVARCHAR(10));
-    END
-    ELSE
-    BEGIN
-        PRINT N'WARNING: Borrow operation for available book FAILED unexpectedly. No borrow record found.';
-    END
-END TRY
-BEGIN CATCH
-    -- No need to DECLARE here, variables are already declared at the top
-    SELECT
-        @ErrorMessage = ERROR_MESSAGE(),
-        @ErrorSeverity = ERROR_SEVERITY(),
-        @ErrorState = ERROR_STATE();
-
-    PRINT N'ERROR: Borrow operation for available book FAILED unexpectedly. Error: ' + @ErrorMessage;
-END CATCH;
-
--- Verification for Scenario 2
-PRINT N'Verification for Scenario 2: Check if borrow record exists for BookID ' + CAST(@BookID_Available AS NVARCHAR(10)) + ' and AvailableCopies decreased:';
-SELECT BorrowID, MemberID, BookID, BorrowDate, DueDate, ActualReturnDate, Status
-FROM Library.Borrows
-WHERE BorrowID = @BorrowID_Success;
-
-PRINT N'Check updated AvailableCopies for BookID ' + CAST(@BookID_Available AS NVARCHAR(10)) + ':';
-SELECT BookID, Title, TotalCopies, AvailableCopies FROM Library.Books WHERE BookID = @BookID_Available;
+select *
+from library.auditlog

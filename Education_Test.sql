@@ -364,6 +364,41 @@ from Education.CourseOfferings;
 select *
 from Education.courses
 
+
+--========================================================================================================================================--
+
+
+PRINT N'--- Testing Education.SuggestCoursesForStudent ---';
+
+-- Declare a variable to hold Mohammad Hosseini's StudentID
+DECLARE @MohammadStudentID INT;
+select *
+from Education.students
+-- Get Mohammad Hosseini's StudentID using his NationalCode (as per Add_data_to_Education.sql)
+SELECT @MohammadStudentID = StudentID FROM Education.Students WHERE NationalCode = '1234567890';
+
+IF @MohammadStudentID IS NOT NULL
+BEGIN
+    PRINT N'Calling Education.SuggestCoursesForStudent for Mohammad Hosseini (StudentID: ' + CAST(@MohammadStudentID AS NVARCHAR(10)) + N')...';
+    EXEC Education.SuggestCoursesForStudent
+        @StudentID = @MohammadStudentID,
+        @CurrentAcademicYear = 2025,
+        @CurrentSemester = N'Fall';
+
+    PRINT N'Testing with a StudentID that does not exist...';
+    EXEC Education.SuggestCoursesForStudent
+        @StudentID = 99999, -- A non-existent StudentID
+        @CurrentAcademicYear = 2025,
+        @CurrentSemester = N'Fall';
+END
+ELSE
+BEGIN
+    PRINT N'Mohammad Hosseini''s StudentID not found. Please ensure the data insertion script was executed successfully.';
+END;
+
+PRINT N'--- Test Execution Complete ---';
+
+
 -- ===================================================================== Triggers =============================================================================
 
 USE UniversityDB;
@@ -453,7 +488,7 @@ from Education.Students
 -- Also, the new status must be different from the student's current status for the change to be detected.
 UPDATE Education.Students
 SET Status = 'Suspended' -- Change status to 'Suspended' or any other valid status
-WHERE StudentID = 1116; -- Enter the desired StudentID here
+WHERE StudentID = 1000; -- Enter the desired StudentID here
 GO
 
 select *
@@ -465,20 +500,12 @@ FROM Education.LogEvents
 ORDER BY LogID DESC; -- Order by LogID to see the latest events first
 GO
 
+--========================================================================================================================================--
 
 
-select *
-from Education.Enrollments;
-
-select *
-from Education.Grades;
-
--- 1. Insert a new grade to activate the trigger.
--- IMPORTANT: Use an EnrollmentID that exists in Education.Enrollments
--- AND has NOT yet been assigned a grade in Education.Grades (due to the UNIQUE constraint on EnrollmentID in Grades).
--- Replace 2001 with a valid EnrollmentID from your database.
+-- 1. Test trigger to update Enrollment status based on the final grade
 INSERT INTO Education.Grades (EnrollmentID, FinalGrade)
-VALUES (1, 15.5); -- Example: A passing grade (FinalGrade >= 10 leads to 'Completed' in EnrollmentStatus)
+VALUES (2, 7.05); -- Example: A passing grade (FinalGrade >= 10 leads to 'Completed' in EnrollmentStatus)
 GO
 
 
@@ -495,7 +522,7 @@ ORDER BY LogID DESC; -- Order by LogID to see the latest events first
 GO
 
 
-
+--========================================================================================================================================--
 
 
 -- test TR_Education_Enrollments_LogEnrollment
@@ -505,7 +532,7 @@ from Education.LogEvents;
 
 
 
-
+--========================================================================================================================================--
 
 
 -- 1. Attempt a direct INSERT into Education.Enrollments.
@@ -534,14 +561,14 @@ WHERE EventType = 'Direct Enrollment Blocked'
 ORDER BY LogID DESC;
 GO
 
-
+--========================================================================================================================================--
 
 
 select *
-from Library.Members;
+from Education.Students;
 
 -- Declare variables for the test
-DECLARE @TestStudentID INT = 1029; 
+DECLARE @TestStudentID INT = 1001; 
 DECLARE @OldStatus NVARCHAR(20);
 DECLARE @NewStatus NVARCHAR(20) = 'Expelled'; -- Or 'Withdrawn' to test that scenario
 

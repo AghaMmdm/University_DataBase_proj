@@ -39,6 +39,10 @@ PRINT 'Deleting from Library.Fines...';
 DELETE FROM Library.Fines;
 GO
 
+PRINT 'Deleting from Library.Fines...';
+DELETE FROM Library.Books;
+GO
+
 PRINT 'Deleting from Library.Reservations...';
 DELETE FROM Library.Reservations;
 GO

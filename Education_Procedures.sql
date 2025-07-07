@@ -605,7 +605,7 @@ BEGIN
         COF.Schedule,
         (COF.Capacity - COF.EnrolledCount) AS AvailableSlots,
         CUR.RequiredSemester,
-        CASE WHEN CUR.IsMandatory = 1 THEN N'اجباری' ELSE N'اختیاری' END AS CourseType
+        CASE WHEN CUR.IsMandatory = 1 THEN N'Mandatory' ELSE N'Mandatory' END AS CourseType
     FROM Education.Curriculum AS CUR -- Using your Curriculum table
     INNER JOIN Education.Courses AS C ON CUR.CourseID = C.CourseID
     INNER JOIN #CurrentOfferings AS COF ON C.CourseID = COF.CourseID
