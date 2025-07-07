@@ -9,6 +9,26 @@ CREATE TABLE Education.Departments (
 );
 GO
 
+-- Table: Education.Majors
+CREATE TABLE Education.Majors (
+    MajorID INT PRIMARY KEY IDENTITY(1,1),
+    MajorName NVARCHAR(100) NOT NULL UNIQUE,
+    DepartmentID INT NOT NULL,
+    CONSTRAINT FK_Major_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID)
+);
+GO
+
+-- Table: Education.Addresses
+CREATE TABLE Education.Addresses (
+    AddressID INT PRIMARY KEY IDENTITY(1,1),
+    Street NVARCHAR(100) NOT NULL,
+    City NVARCHAR(50) NOT NULL,
+    StateProvince NVARCHAR(50),
+    ZipCode NVARCHAR(10),
+    Country NVARCHAR(50) NOT NULL DEFAULT 'Iran'
+);
+GO
+
 -- Table: Education.Students
 CREATE TABLE Education.Students (
     StudentID INT PRIMARY KEY IDENTITY(1000,1), -- Starting ID from 1000 for Students
@@ -18,13 +38,15 @@ CREATE TABLE Education.Students (
     DateOfBirth DATE,
     Email NVARCHAR(100) UNIQUE,
     PhoneNumber NVARCHAR(20),
-    Address NVARCHAR(255),
+    AddressID INT,
     EnrollmentDate DATE NOT NULL DEFAULT GETDATE(), -- Default enrollment date is today
     DepartmentID INT NOT NULL,
-    Major NVARCHAR(100),
+    MajorID INT,
     Status NVARCHAR(20) NOT NULL DEFAULT 'Active', -- ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended')
     CONSTRAINT FK_Student_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID),
-    CONSTRAINT CHK_StudentStatus CHECK (Status IN ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended'))
+    CONSTRAINT CHK_StudentStatus CHECK (Status IN ('Active', 'Graduated', 'Expelled', 'Withdrawn', 'Suspended')),
+	CONSTRAINT FK_Student_Address FOREIGN KEY (AddressID) REFERENCES Education.Addresses(AddressID),
+	CONSTRAINT FK_Student_Major FOREIGN KEY (MajorID) REFERENCES Education.Majors(MajorID)
 );
 GO
 
@@ -36,14 +58,24 @@ CREATE TABLE Education.Professors (
     Email NVARCHAR(100) UNIQUE,
     DepartmentID INT NOT NULL,
     Rank NVARCHAR(50),
+	AddressID INT,
     HireDate DATE NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT FK_Professor_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID)
+    CONSTRAINT FK_Professor_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID),
+	CONSTRAINT FK_Professor_Address FOREIGN KEY (AddressID) REFERENCES Education.Addresses(AddressID)
 );
 GO
 
 -- link the HeadOfDepartmentID column in the Departments table to ProfessorID in the Professors table
 ALTER TABLE Education.Departments
 ADD CONSTRAINT FK_Department_Head FOREIGN KEY (HeadOfDepartmentID) REFERENCES Education.Professors(ProfessorID);
+GO
+
+-- Table: Education.CourseCategories
+CREATE TABLE Education.CourseCategories (
+    CategoryID INT PRIMARY KEY IDENTITY(1,1),
+    CategoryName NVARCHAR(100) NOT NULL UNIQUE,
+    Description NVARCHAR(MAX)
+);
 GO
 
 -- Table: Education.Courses
@@ -54,7 +86,9 @@ CREATE TABLE Education.Courses (
     Credits DECIMAL(3,1) NOT NULL,
     DepartmentID INT NOT NULL,
     Description NVARCHAR(MAX),
-    CONSTRAINT FK_Course_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID)
+	CategoryID INT,
+    CONSTRAINT FK_Course_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID),
+	CONSTRAINT FK_Course_Category FOREIGN KEY (CategoryID) REFERENCES Education.CourseCategories(CategoryID)
 );
 GO
 
@@ -80,7 +114,6 @@ CREATE TABLE Education.Enrollments (
     StudentID INT NOT NULL,
     OfferingID INT NOT NULL,
     EnrollmentDate DATETIME NOT NULL DEFAULT GETDATE(),
-    Grade DECIMAL(4,2) NULL,
     Status NVARCHAR(20) NOT NULL DEFAULT 'Enrolled',
     CONSTRAINT FK_Enrollment_Student FOREIGN KEY (StudentID) REFERENCES Education.Students(StudentID),
     CONSTRAINT FK_Enrollment_Offering FOREIGN KEY (OfferingID) REFERENCES Education.CourseOfferings(OfferingID),
@@ -99,27 +132,6 @@ CREATE TABLE Education.Prerequisites (
     CONSTRAINT UQ_Course_Prereq UNIQUE (CourseID, PrerequisiteCourseID), -- Each course-prerequisite combination must be unique
     CONSTRAINT CHK_SelfPrerequisite CHECK (CourseID <> PrerequisiteCourseID) -- A course cannot be its own prerequisite
 );
-GO
-
--- Table: Education.Majors
-CREATE TABLE Education.Majors (
-    MajorID INT PRIMARY KEY IDENTITY(1,1),
-    MajorName NVARCHAR(100) NOT NULL UNIQUE,
-    DepartmentID INT NOT NULL,
-    CONSTRAINT FK_Major_Department FOREIGN KEY (DepartmentID) REFERENCES Education.Departments(DepartmentID)
-);
-GO
-
--- link the Major column in the Students table to MajorID in the Majors table
-ALTER TABLE Education.Students
-DROP COLUMN Major; -- Drop the old Major column from Students
-GO
-
-ALTER TABLE Education.Students
-ADD MajorID INT NULL; -- Add the new MajorID column
-
-ALTER TABLE Education.Students
-ADD CONSTRAINT FK_Student_Major FOREIGN KEY (MajorID) REFERENCES Education.Majors(MajorID);
 GO
 
 -- Table: Education.Curriculum
@@ -156,11 +168,6 @@ CREATE TABLE Education.AcademicYears (
 );
 GO
 
--- drop the Grade column from Enrollments to manage grades only in the Grades table
-ALTER TABLE Education.Enrollments
-DROP COLUMN Grade;
-GO
-
 -- Table: Education.Grades
 CREATE TABLE Education.Grades (
     GradeID INT PRIMARY KEY IDENTITY(1,1),
@@ -170,36 +177,6 @@ CREATE TABLE Education.Grades (
     CONSTRAINT FK_Grade_Enrollment FOREIGN KEY (EnrollmentID) REFERENCES Education.Enrollments(EnrollmentID),
     CONSTRAINT CHK_FinalGradeRange CHECK (FinalGrade >= 0 AND FinalGrade <= 20)
 );
-GO
-
--- Table: Education.Addresses
-CREATE TABLE Education.Addresses (
-    AddressID INT PRIMARY KEY IDENTITY(1,1),
-    Street NVARCHAR(100) NOT NULL,
-    City NVARCHAR(50) NOT NULL,
-    StateProvince NVARCHAR(50),
-    ZipCode NVARCHAR(10),
-    Country NVARCHAR(50) NOT NULL DEFAULT 'Iran'
-);
-GO
-
--- Now, remove the Address column from Students and add AddressID
-ALTER TABLE Education.Students
-DROP COLUMN Address;
-GO
-
-ALTER TABLE Education.Students
-ADD AddressID INT NULL;
-
-ALTER TABLE Education.Students
-ADD CONSTRAINT FK_Student_Address FOREIGN KEY (AddressID) REFERENCES Education.Addresses(AddressID);
-GO
-
--- we want to have addresses for Professors as well, we can do the same for the Professors table:
-ALTER TABLE Education.Professors
-ADD AddressID INT NULL;
-ALTER TABLE Education.Professors
-ADD CONSTRAINT FK_Professor_Address FOREIGN KEY (AddressID) REFERENCES Education.Addresses(AddressID);
 GO
 
 -- Table: Education.StudentContacts
@@ -212,20 +189,4 @@ CREATE TABLE Education.StudentContacts (
     Email NVARCHAR(100),
     CONSTRAINT FK_StudentContact_Student FOREIGN KEY (StudentID) REFERENCES Education.Students(StudentID)
 );
-GO
-
--- Table: Education.CourseCategories
-CREATE TABLE Education.CourseCategories (
-    CategoryID INT PRIMARY KEY IDENTITY(1,1),
-    CategoryName NVARCHAR(100) NOT NULL UNIQUE,
-    Description NVARCHAR(MAX)
-);
-GO
-
--- Add CategoryID to the Courses table
-ALTER TABLE Education.Courses
-ADD CategoryID INT NULL; -- Can be NULL if not all courses have a category
-
-ALTER TABLE Education.Courses
-ADD CONSTRAINT FK_Course_Category FOREIGN KEY (CategoryID) REFERENCES Education.CourseCategories(CategoryID);
 GO

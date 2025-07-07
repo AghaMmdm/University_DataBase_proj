@@ -2,5 +2,7 @@
 
 
 CREATE SCHEMA Education;
+GO
 
 CREATE SCHEMA Library;
+GO
